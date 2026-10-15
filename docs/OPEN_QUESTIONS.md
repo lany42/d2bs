@@ -1,6 +1,6 @@
 # Open questions
 
-Scope: every question about D2BS 1.6.4U on Diablo II 1.14d that could **not** be answered by reading the C++ source in this repository, the bundled SpiderMonkey headers (`dependencies/include`) or the bundled build artifacts (`dependencies/libs`, `Debug/`, `Release/`). Each entry says why the answer matters for the next-generation D2BS (SpiderMonkey removed, JS API replaced by a networked RPC control API), what is already known, and how to settle it. Candidates came from every "Open questions" section and every "unknown / unverified / not determinable" statement under `docs/` (except `docs/ghidra/`), plus the open questions and remaining concerns reported by the agents that wrote and verified those docs. Duplicates were merged. Each candidate was then checked against the source, the headers and the shipped binaries. Questions closed that way are in [Appendix A](#appendix-a-resolved-during-triage), and the doc that raised them was updated in place.
+Scope: every question about D2BS 1.6.4U on Diablo II 1.14d that could **not** be answered by reading the C++ source in this repository, the bundled SpiderMonkey headers (`dependencies/include`) or the bundled build artifacts (`dependencies/libs`, `Debug/`, `Release/`). Each entry says why the answer matters for the next-generation D2BS (SpiderMonkey removed, JS API replaced by a networked RPC control API), what is already known, and how to settle it. Candidates came from every "Open questions" section and every "unknown / unverified / not determinable" statement under `docs/`, plus the open questions and remaining concerns reported by the agents that wrote and verified those docs. The Ghidra importer's questions were added after it was finished: [OQ-BLD-05](#oq-bld-05) and [OQ-BLD-06](#oq-bld-06). Duplicates were merged. Each candidate was then checked against the source, the headers and the shipped binaries. Questions closed that way are in [Appendix A](#appendix-a-resolved-during-triage), and the doc that raised them was updated in place.
 
 ## Contents
 
@@ -135,6 +135,8 @@ Scope: every question about D2BS 1.6.4U on Diablo II 1.14d that could **not** be
 | [OQ-BLD-02](#oq-bld-02) | Build | Do the headers match the `build-unsafe` lib, and where is Packaging's `mozjs.lib`? | Rebuild mozilla-release 22 with the same config |
 | [OQ-BLD-03](#oq-bld-03) | Build | Facts visible only in the compiled `D2BS.dll` (store widths, `PUSHF`, `abs` overload) | Build with v100 and disassemble |
 | [OQ-BLD-04](#oq-bld-04) | Build | Open choices in the Ghidra import tooling | Run against a real Ghidra install; owner decision |
+| [OQ-BLD-05](#oq-bld-05) | Build | How does `D2BSImport.java` behave inside a real Ghidra install and on the real Game.exe? | `dry-run` then a real run, GUI and `analyzeHeadless`, on 10.x/11.x/12.x |
+| [OQ-BLD-06](#oq-bld-06) | Build | Should register-ABI `_I`/`_II` entry points be imported as functions instead of labels? | Disassemble each entry; generator/importer owner decision |
 | [OQ-INT-01](#oq-int-01) | Intent | Is `pack(1)` on the non-network structs intended? | Owner decision |
 | [OQ-INT-02](#oq-int-02) | Intent | Keep, fix or drop `Sandbox`? | Owner decision |
 | [OQ-INT-03](#oq-int-03) | Intent | Was `-ftj` (FailToJoin) meant to be dropped? | Owner decision; git history |
@@ -1205,6 +1207,31 @@ These matter for next-gen mainly in two ways: they explain present behaviour tha
 - **Known:** [structs.md § Open questions](memory/structs.md#open-questions). The TSV still uses the inline form (`docs/ghidra/d2bs_symbols.tsv`, rows for `D2WIN_SetEditBoxCallback`/`SetEditBoxProc`).
 - **Resolve by:** running `docs/ghidra/tools/gen_types.py --ghidra-install` against a Ghidra 12 release. The rest is the importer owner's decision.
 - **Raised in:** [structs.md](memory/structs.md#open-questions), agent reports for structs.md.
+
+### OQ-BLD-05
+
+**End-to-end behaviour of the Ghidra importer in a real installation.**
+
+- **Question:** Does `docs/ghidra/D2BSImport.java` behave in a real Ghidra installation as it did in the verification harnesses, in both the Script Manager and `analyzeHeadless`? Specifically:
+  - Disassembly and `CreateFunctionCmd` body splitting at the 111 `FUNC` rows.
+  - The patch-site boundary check, data-type conflicts and which rows land on `FUN_*` entries, given the real Game.exe 1.14d bytes.
+  - Layout computation by the 10.x/11.x framework classes. Only their C grammars ran.
+  - Association of the `/D2BS` types with the in-memory "D2BS header" source archive on 10.x/11.x.
+  - Interplay with an auto-analysis that is still running in the GUI.
+- **RPC impact:** none directly. The importer is the main tool for settling the MEM/STR/NET questions above, so wrong or partial imports would mislead that work.
+- **Known:** The script compiles with `-Xlint:all -Werror` against API stubs copied from Ghidra source at 12.3-DEV, 12.0.4, 11.0, 10.4, 10.2 and 10.1, and against real 12.0.4 framework classes. The real 12.0.4 `CParser` parses `d2bs_types.h` (all composite sizes match) and all 111 prototypes. A run against a real 12.0.4 `ProgramDB` over synthetic memory, plus static-helper harnesses over all 266 TSV rows, passed, including re-run idempotency and dry-run counter parity. Nothing ran inside a Ghidra application, and no Game.exe was available ([ghidra/README.md §11](ghidra/README.md#11-verification-performed), [§12](ghidra/README.md#12-known-limitations), [§14](ghidra/README.md#14-open-questions)).
+- **Resolve by:** importing Game.exe 1.14d (base 0x400000, `x86:LE:32:default`, windows compiler spec). Let auto-analysis finish, run the script with `dry-run`, then run it for real, then re-run it to confirm nothing changes. Repeat headless and on one 10.x/11.x install. Run `docs/ghidra/tools/gen_types.py --ghidra-install <dir>` against the same installs to compare layouts.
+- **Raised in:** [ghidra/README.md §14](ghidra/README.md#14-open-questions), agent reports for the Ghidra script and its API and integration verifiers.
+
+### OQ-BLD-06
+
+**Register-ABI entry points imported as labels.**
+
+- **Question:** Several `ASMPTR` rows with `_I`/`_II` suffixes are imported as `LABEL` but are in practice function entries with register-based calling conventions (e.g. `D2CLIENT_GetUnitName_I`, `D2CLIENT_ClickParty_I`). Should `gen_symbols.py` emit them as `FUNC` rows with custom storage, so Ghidra creates functions with correct parameters? Separately, six asm-only `FUNC` rows have declared prototypes that do not match the register ABI their stubs set up, and are skipped by default (`asm-only=skip`). Should their true storage be encoded in the data?
+- **RPC impact:** none directly. Correct prototypes at these entries make the remaining call-stub questions ([OQ-MEM-09](#oq-mem-09)) much easier to settle.
+- **Known:** the script creates no functions for `LABEL` rows; at a default-named `FUN_*` entry a `LABEL` row names that function ([ghidra/README.md §7](ghidra/README.md#7-what-each-row-kind-does)). The register contracts the stubs assume are listed in [memory/call-stubs.md](memory/call-stubs.md).
+- **Resolve by:** disassembling each `_I`/`_II` entry to confirm its inputs, return and stack cleanup ([OQ-MEM-09](#oq-mem-09)). Then decide whether to extend the TSV schema, for example with a custom-storage column.
+- **Raised in:** agent reports for the Ghidra script ([ghidra/README.md §12](ghidra/README.md#12-known-limitations)).
 
 ## 12. Intent & legacy behaviour (INT)
 
