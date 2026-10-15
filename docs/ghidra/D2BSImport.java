@@ -67,6 +67,7 @@ import ghidra.program.model.data.UnsignedLongDataType;
 import ghidra.program.model.data.UnsignedShortDataType;
 import ghidra.program.model.data.VoidDataType;
 import ghidra.program.model.data.WideCharDataType;
+import ghidra.program.model.listing.Bookmark;
 import ghidra.program.model.listing.BookmarkManager;
 import ghidra.program.model.listing.BookmarkType;
 import ghidra.program.model.listing.CodeUnit;
@@ -81,7 +82,6 @@ import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolTable;
 import ghidra.program.model.symbol.SymbolType;
 import ghidra.util.exception.CancelledException;
-import ghidra.util.task.TaskMonitor;
 
 public class D2BSImport extends GhidraScript {
 
@@ -95,7 +95,10 @@ public class D2BSImport extends GhidraScript {
     static final boolean DEFAULT_SKIP_TYPES = false;
     /** true: never apply FUNC prototypes (names, comments, bookmarks still applied). */
     static final boolean DEFAULT_SKIP_SIGNATURES = false;
-    /** auto: rename only default/analysis names; keep: never rename; force: always rename. */
+    /**
+     * auto: rename only default/analysis names; keep: never rename an existing function or
+     * name it through a label (functions this run creates are named); force: always rename.
+     */
     static final String DEFAULT_NAMES = "auto";
     /** replace: /D2BS types from the header replace same-named ones; keep: existing win. */
     static final String DEFAULT_TYPES = "replace";
@@ -131,7 +134,6 @@ public class D2BSImport extends GhidraScript {
     private static final Pattern RVA_HEX = Pattern.compile("0x[0-9A-Fa-f]{1,8}");
     private static final Pattern RVA_ORD = Pattern.compile("ORD:([0-9]{1,5})");
     private static final Pattern EXTRA_KEY = Pattern.compile("[a-z_]+");
-    private static final Pattern IDENT = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
     private static final Pattern TYPE_WORDS =
         Pattern.compile("[A-Za-z_][A-Za-z0-9_]*( [A-Za-z_][A-Za-z0-9_]*)*");
 
@@ -349,7 +351,7 @@ public class D2BSImport extends GhidraScript {
         boolean headerSeen = false;
         for (int i = 0; i < lines.size(); i++) {
             String line = lines.get(i);
-            if (i == 0 && line.startsWith("﻿")) {
+            if (i == 0 && line.startsWith("\uFEFF")) {
                 line = line.substring(1);
             }
             if (line.endsWith("\r")) {
@@ -803,6 +805,19 @@ public class D2BSImport extends GhidraScript {
             r.source + (r.comment.isEmpty() ? "" : " // " + r.comment);
     }
 
+    /**
+     * Marks an owned line as belonging to address {@code at} (used when the row's address is
+     * inside a code unit, so the comment is stored on the code unit that contains it):
+     * "D2BS: x" -> "D2BS @at: x", "D2BS patch: x" -> "D2BS @at patch: x". The result is still
+     * an owned line. {@code at == null} returns the line unchanged.
+     */
+    static String tagOwnedLine(String line, String at) {
+        if (at == null || !isOwnedLine(line)) {
+            return line;
+        }
+        return OWNED_PREFIX + " @" + at + line.substring(OWNED_PREFIX.length());
+    }
+
     // ------------------------------------------------------------------------------------
     // Header unit splitting (pure helper, used for diagnostics only)
     // ------------------------------------------------------------------------------------
@@ -924,22 +939,34 @@ public class D2BSImport extends GhidraScript {
     }
 
     /**
-     * Creates an empty in-memory data type manager. Uses TransientDataTypeManager (Ghidra
-     * 12.2+) or StandAloneDataTypeManager (deprecated in 12.2), whichever exists.
+     * Creates an in-memory data type manager. Uses TransientDataTypeManager (Ghidra 12.2+) or
+     * StandAloneDataTypeManager (deprecated in 12.2), whichever exists. The built-in wchar_t
+     * is added up front: CParser otherwise looks it up in BuiltInDataTypeManager, which is
+     * only populated once Ghidra's class searcher has run.
      */
     static DataTypeManager createScratchDtm(String name, DataOrganization org) throws Exception {
         String[] classNames = { "ghidra.program.database.data.TransientDataTypeManager",
             "ghidra.program.model.data.StandAloneDataTypeManager" };
         Exception last = null;
         for (String cn : classNames) {
+            DataTypeManager dtm;
             try {
                 Class<?> c = Class.forName(cn);
                 Constructor<?> ctor = c.getConstructor(String.class, DataOrganization.class);
-                return (DataTypeManager) ctor.newInstance(name, org);
+                dtm = (DataTypeManager) ctor.newInstance(name, org);
             }
             catch (ClassNotFoundException | NoSuchMethodException e) {
                 last = e;
+                continue;
             }
+            int tx = dtm.startTransaction("D2BS built-ins");
+            try {
+                dtm.resolve(WideCharDataType.dataType, null);
+            }
+            finally {
+                dtm.endTransaction(tx, true);
+            }
+            return dtm;
         }
         throw new IllegalStateException("no in-memory DataTypeManager class found", last);
     }
@@ -948,13 +975,10 @@ public class D2BSImport extends GhidraScript {
      * Parses {@code headerText} with CParser into {@code dtm} (types stored, category
      * /D2BS). Never throws for parse problems: they are returned in the result.
      */
-    static HeaderResult parseHeader(DataTypeManager dtm, String headerText, TaskMonitor monitor) {
+    static HeaderResult parseHeader(DataTypeManager dtm, String headerText) {
         HeaderResult res = new HeaderResult();
         String[] lines = headerText.split("\n", -1);
         CParser parser = new CParser(dtm, true, null);
-        if (monitor != null) {
-            parser.setMonitor(monitor);
-        }
         try {
             parser.parse(new ByteArrayInputStream(
                 (HEADER_LINE_DIRECTIVE + headerText).getBytes(StandardCharsets.UTF_8)));
@@ -972,11 +996,8 @@ public class D2BSImport extends GhidraScript {
             }
             res.errors.add("CParser failed: " + e);
         }
-        if (res.errors.isEmpty() && !parser.didParseSucceed()) {
-            res.errors.add("CParser reported failure without an exception");
-        }
-        String msgs = parser.getParseMessages();
-        if (msgs != null && !msgs.trim().isEmpty()) {
+        String msgs = parseMessages(parser);
+        if (!msgs.trim().isEmpty()) {
             for (String m : msgs.split("\n")) {
                 if (!m.trim().isEmpty()) {
                     res.warnings.add("CParser: " + m.trim());
@@ -985,6 +1006,20 @@ public class D2BSImport extends GhidraScript {
         }
         res.ok = res.errors.isEmpty();
         return res;
+    }
+
+    /**
+     * CParser.getParseMessages() (non-fatal messages; Ghidra 10.2+). Called reflectively so
+     * that the script also compiles on 10.0/10.1; returns "" where it does not exist.
+     */
+    static String parseMessages(CParser parser) {
+        try {
+            Object o = parser.getClass().getMethod("getParseMessages").invoke(parser);
+            return o == null ? "" : o.toString();
+        }
+        catch (ReflectiveOperationException | RuntimeException e) {
+            return "";
+        }
     }
 
     /**
@@ -1024,11 +1059,17 @@ public class D2BSImport extends GhidraScript {
         return out;
     }
 
+    private static final Pattern AROUND_LINE = Pattern.compile("around line: (\\d+)");
+    private static final Pattern AT_LINE = Pattern.compile(" at line \\d+, column \\d+");
+
     /**
-     * Formats a CParser error as 'd2bs_types.h:LINE: message | source line', where LINE is
-     * the line of the offending token plus {@code lineOffset}.
+     * Formats a CParser error as 'd2bs_types.h:LINE: message | source line'. LINE is the
+     * parser-stream line of the offending token (syntax errors), or the stream line named in
+     * CParser's 'Check around ... line: N' text (semantic errors such as an undefined type,
+     * which carry no token), plus {@code lineOffset}.
      */
     static String describeParseError(ParseException e, String[] lines, int lineOffset) {
+        String raw = e.getMessage() == null ? "" : e.getMessage();
         Token t = e.currentToken;
         if (t != null && t.next != null) {
             t = t.next;
@@ -1037,10 +1078,18 @@ public class D2BSImport extends GhidraScript {
         if (t != null && t.beginLine > 0) {
             line = t.beginLine + lineOffset;
         }
+        else {
+            Matcher m = AROUND_LINE.matcher(raw);
+            if (m.find()) {
+                line = Integer.parseInt(m.group(1)) + lineOffset;
+            }
+        }
         StringBuilder msg = new StringBuilder();
-        String raw = e.getMessage() == null ? "" : e.getMessage();
         for (String l : raw.split("\n")) {
-            String s = l.trim();
+            String s = AT_LINE.matcher(l.trim()).replaceAll("");
+            if (s.equals("near token: null")) {
+                continue;
+            }
             if (s.startsWith("Error:") || s.startsWith("near token") ||
                 s.startsWith("Possibly Undefined") || s.startsWith("Encountered")) {
                 if (msg.length() > 0) {
@@ -1209,6 +1258,8 @@ public class D2BSImport extends GhidraScript {
         final List<String> warnings = new ArrayList<>();
         final List<String> actions = new ArrayList<>();
         String skipReason;
+        /** true if this run created (or, in dry-run, would create) the row's function */
+        boolean createdFunction;
 
         RowLog(Row row, String where) {
             this.row = row;
@@ -1223,6 +1274,34 @@ public class D2BSImport extends GhidraScript {
         final List<String> eol = new ArrayList<>();
         final List<String> notes = new ArrayList<>();
         final List<String> warns = new ArrayList<>();
+
+        boolean hasComments() {
+            return !plate.isEmpty() || !pre.isEmpty() || !eol.isEmpty();
+        }
+
+        /** Appends the comment lines of {@code o}, tagged with {@code at} (may be null). */
+        void addCommentsFrom(AddrCtx o, String at) {
+            for (String l : o.plate) {
+                plate.add(tagOwnedLine(l, at));
+            }
+            for (String l : o.pre) {
+                pre.add(tagOwnedLine(l, at));
+            }
+            for (String l : o.eol) {
+                eol.add(tagOwnedLine(l, at));
+            }
+        }
+    }
+
+    /** Annotations of one row address, written after all rows have been applied. */
+    private static final class Pending {
+        final Address addr;
+        final AddrCtx ctx;
+
+        Pending(Address addr, AddrCtx ctx) {
+            this.addr = addr;
+            this.ctx = ctx;
+        }
     }
 
     private Options opts;
@@ -1239,6 +1318,9 @@ public class D2BSImport extends GhidraScript {
     private final List<String> warnings = new ArrayList<>();
     private final Map<String, int[]> kindStats = new LinkedHashMap<>();
     private final Map<String, Integer> counters = new LinkedHashMap<>();
+    private final List<Pending> pending = new ArrayList<>();
+    /** entries whose function this run named (in dry-run: would name), see ensureLabel */
+    private final Set<Address> functionsNamed = new HashSet<>();
 
     private void count(String key) {
         counters.merge(key, 1, Integer::sum);
@@ -1345,6 +1427,12 @@ public class D2BSImport extends GhidraScript {
             }
             applyRows(rows);
         }
+        catch (CancelledException e) {
+            // GhidraScript commits the script's transaction on the way out: report what
+            // was done before the cancel (one Undo reverts the whole run)
+            printSummary(rows, true);
+            throw e;
+        }
         finally {
             if (universe != null && universe != headerDtm) {
                 universe.close();
@@ -1353,7 +1441,7 @@ public class D2BSImport extends GhidraScript {
                 headerDtm.close();
             }
         }
-        printSummary(rows);
+        printSummary(rows, false);
     }
 
     /** Language, image base and program name checks. Returns false to abort. */
@@ -1452,8 +1540,20 @@ public class D2BSImport extends GhidraScript {
                 .replace("\r\n", "\n");
         DataOrganization org = programDtm.getDataOrganization();
         DataTypeManager scratch = createScratchDtm("D2BS header", org);
+        try {
+            return importTypes(text, headerFile, org, scratch);
+        }
+        catch (Exception | Error e) {
+            scratch.close();
+            throw e;
+        }
+    }
+
+    /** importTypes() body; returns {@code scratch}, or null after closing it. */
+    private DataTypeManager importTypes(String text, File headerFile, DataOrganization org,
+            DataTypeManager scratch) throws Exception {
         monitor.setMessage("D2BS: parsing " + HEADER_FILE);
-        HeaderResult hr = parseHeader(scratch, text, monitor);
+        HeaderResult hr = parseHeader(scratch, text);
         for (String w : hr.warnings) {
             warn(w);
         }
@@ -1543,6 +1643,10 @@ public class D2BSImport extends GhidraScript {
             applyGroup(g.getKey(), g.getValue());
             monitor.incrementProgress(1);
         }
+        // comments and bookmarks last: the script makes no further listing changes, so the
+        // code unit that holds each comment is the one the next run will see
+        monitor.setMessage("D2BS: writing comments and bookmarks");
+        writeAnnotations();
     }
 
     private void applyGroup(long rva, List<Row> rows) {
@@ -1588,7 +1692,9 @@ public class D2BSImport extends GhidraScript {
                     applyData(r, addr, block, ctx, log);
                 }
                 else if ("LABEL".equals(r.kind)) {
-                    ensureLabel(addr, r.name, false, log);
+                    // a LABEL row at a FUN_* entry names that function, except with names=keep
+                    ensureLabel(addr, r.name, false, canTakeOver(SourceType.DEFAULT)
+                            ? AtDefaultFunction.RENAME : AtDefaultFunction.SKIP, log);
                     ctx.eol.add(rowLine(r));
                 }
                 else {
@@ -1602,13 +1708,16 @@ public class D2BSImport extends GhidraScript {
             finish(log);
         }
         if (block != null) {
-            writeComments(addr, ctx);
+            pending.add(new Pending(addr, ctx));
         }
     }
 
-    /** stale=mark: label (never primary) + EOL comment; no function, type or signature. */
+    /**
+     * stale=mark: label (never primary, never the name of an existing function) + EOL comment;
+     * no function, type or signature.
+     */
     private void markOnly(Row r, Address addr, AddrCtx ctx, RowLog log) {
-        ensureLabel(addr, r.name, false, log);
+        ensureLabel(addr, r.name, false, AtDefaultFunction.SKIP, log);
         ctx.eol.add(rowLine(r));
         if ("FUNC".equals(r.kind)) {
             ctx.eol.add(OWNED_PREFIX + " proto: " + r.type + " (not applied: stale=mark)");
@@ -1621,7 +1730,8 @@ public class D2BSImport extends GhidraScript {
 
     private void applyFunc(Row r, Address addr, MemoryBlock block, AddrCtx ctx, RowLog log) {
         if (r.isAlias()) {
-            ensureLabel(addr, r.name, false, log);
+            // secondary label only: an alias never names the function
+            ensureLabel(addr, r.name, false, AtDefaultFunction.SKIP, log);
             ctx.plate.add(OWNED_PREFIX + " alias: " + r.name + " [" + r.module + "] " +
                 r.flagText() + " " + r.source + " = " + r.type);
             count("signatures.alias");
@@ -1635,16 +1745,20 @@ public class D2BSImport extends GhidraScript {
         if (f == null) {
             if (!log.errors.isEmpty()) {
                 // no function can be made here: keep the name visible as a plain label
-                ensureLabel(addr, r.name, false, log);
+                ensureLabel(addr, r.name, false, AtDefaultFunction.SKIP, log);
                 return;
             }
             // dry-run only: the function would be created (default name) and then renamed
             log.actions.add("name " + r.name);
+            count("functions.renamed");
+            functionsNamed.add(addr);
             checkSignature(r, log, ctx);
             return;
         }
         if (f.isThunk()) {
-            log.warnings.add("function at " + addr + " is a thunk; name/prototype go to it");
+            // FunctionDB.updateFunction forwards a thunk's signature to the thunked function
+            log.warnings.add("function at " + addr + " is a thunk: the name is set on the " +
+                "thunk, Ghidra applies the prototype to the thunked function");
         }
         nameFunction(f, r, addr, ctx, log);
         FunctionDefinition fd = checkSignature(r, log, ctx);
@@ -1679,9 +1793,14 @@ public class D2BSImport extends GhidraScript {
             if (opts.dryRun) {
                 log.actions.add("disassemble");
                 log.actions.add("create function");
+                count("functions.disassembled");
+                count("functions.created");
+                log.createdFunction = true;
                 return null;
             }
-            if (d != null && d.getLength() > 1) {
+            if (d != null && d.isDefined()) {
+                // undefined1..8 / undefined array (checked above): clear it so that the
+                // disassembler may use the bytes; DEFAULT bytes need no clearing
                 listing.clearCodeUnits(d.getMinAddress(), d.getMaxAddress(), false);
             }
             if (!disassemble(addr) || listing.getInstructionAt(addr) == null) {
@@ -1692,6 +1811,8 @@ public class D2BSImport extends GhidraScript {
         }
         if (opts.dryRun) {
             log.actions.add("create function");
+            count("functions.created");
+            log.createdFunction = true;
             return null;
         }
         f = createFunction(addr, null);
@@ -1700,6 +1821,7 @@ public class D2BSImport extends GhidraScript {
             return null;
         }
         count("functions.created");
+        log.createdFunction = true;
         return f;
     }
 
@@ -1724,15 +1846,25 @@ public class D2BSImport extends GhidraScript {
             return;
         }
         SourceType src = f.getSymbol().getSource();
-        if (!canTakeOver(src)) {
-            ensureLabel(addr, r.name, false, log);
-            ctx.plate.add(OWNED_PREFIX + " note: existing name '" + cur + "' kept (names=" +
-                opts.names + "); D2BS name added as a secondary label");
+        // a function this run created has no name worth keeping, whatever the policy
+        if (!log.createdFunction && !canTakeOver(src)) {
+            if (src == SourceType.DEFAULT) {
+                // names=keep on a FUN_* name: a label here would rename the function
+                ctx.plate.add(OWNED_PREFIX + " note: existing name '" + cur + "' kept (names=" +
+                    opts.names + "); no label added (it would rename this default-named function)");
+            }
+            else {
+                ensureLabel(addr, r.name, false, AtDefaultFunction.SKIP, log);
+                ctx.plate.add(OWNED_PREFIX + " note: existing name '" + cur + "' kept (names=" +
+                    opts.names + "); D2BS name added as a secondary label");
+            }
             count("functions.name-kept");
             return;
         }
         if (opts.dryRun) {
             log.actions.add("rename " + cur + " -> " + r.name);
+            count("functions.renamed");
+            functionsNamed.add(addr);
             return;
         }
         try {
@@ -1742,6 +1874,7 @@ public class D2BSImport extends GhidraScript {
             }
             f.setName(r.name, SourceType.USER_DEFINED);
             count("functions.renamed");
+            functionsNamed.add(addr);
             if (src != SourceType.DEFAULT && findSymbolAt(addr, cur) == null) {
                 symbolTable.createLabel(addr, cur, src);
             }
@@ -1769,6 +1902,11 @@ public class D2BSImport extends GhidraScript {
         String norm;
         try {
             norm = normalizePrototype(r.type, r.name, protoTypedefs);
+            if (norm.contains("__thiscall")) {
+                // C.jj has tokens for __cdecl/__stdcall/__fastcall/__vectorcall, not __thiscall
+                throw new IllegalArgumentException("Ghidra's C parser has no __thiscall " +
+                    "keyword; set this function's calling convention by hand");
+            }
         }
         catch (IllegalArgumentException e) {
             log.errors.add("prototype: " + e.getMessage());
@@ -1825,7 +1963,8 @@ public class D2BSImport extends GhidraScript {
     }
 
     private void applyData(Row r, Address addr, MemoryBlock block, AddrCtx ctx, RowLog log) {
-        ensureLabel(addr, r.name, !r.isAlias(), log);
+        // a DATA row at a FUN_* entry is a conflict: never rename the function after it
+        ensureLabel(addr, r.name, !r.isAlias(), AtDefaultFunction.SKIP, log);
         ctx.eol.add(rowLine(r));
         if (r.isAlias()) {
             return;
@@ -1834,9 +1973,15 @@ public class D2BSImport extends GhidraScript {
             count("data.untyped");
             return;
         }
+        DataTypeManager typeSource = opts.dryRun ? universe : programDtm;
+        if (typeSource == null) {
+            log.warnings.add("data type '" + r.type + "': no type source; label only");
+            count("data.type-missing");
+            return;
+        }
         DataType dt;
         try {
-            dt = resolveDataType(opts.dryRun ? universe : programDtm, r.type);
+            dt = resolveDataType(typeSource, r.type);
         }
         catch (IllegalArgumentException e) {
             log.warnings.add("data type: " + e.getMessage() + "; label only");
@@ -1922,7 +2067,9 @@ public class D2BSImport extends GhidraScript {
     }
 
     private void applyPatch(Row r, Address addr, AddrCtx ctx, RowLog log) {
-        ensureLabel(addr, r.name, false, log);
+        // patch sites at a FUN_* entry get no label: it would rename the game function after
+        // the patch (bookmark and pre-comment carry the name)
+        ensureLabel(addr, r.name, false, AtDefaultFunction.SKIP_QUIETLY, log);
         String suffix = null;
         Row target = rowsByName.get(r.extraMap.get("target"));
         if (target != null && target.rva >= 0) {
@@ -1938,9 +2085,9 @@ public class D2BSImport extends GhidraScript {
         ctx.pre.add(OWNED_PREFIX + " patch src: " + r.name + " " + r.source + " [" +
             r.flagText() + "]" + (r.comment.isEmpty() ? "" : " // " + r.comment));
         if (r.has("captured-encoded")) {
-            ctx.pre.add(OWNED_PREFIX + " patch note: captured-encoded: the target is read " +
-                "before DefineOffsets() runs, so the installed jump goes to the DLLOFFSET " +
-                "encoding, not to this address (docs/memory/README.md section 5.1)");
+            ctx.pre.add(OWNED_PREFIX + " patch note: captured-encoded: Patch.h reads the " +
+                "target before DefineOffsets() runs, so the installed jump goes to its " +
+                "DLLOFFSET encoding, not to the address above (docs/memory/README.md 5.1)");
         }
         String note = r.name + ": " + line.substring((OWNED_PREFIX + " patch: ").length()) +
             " (" + r.source + ")";
@@ -1994,11 +2141,57 @@ public class D2BSImport extends GhidraScript {
     }
 
     /**
+     * What {@link #ensureLabel} does where a function with a default name (FUN_*) starts:
+     * SymbolTable.createLabel does not add a label there but renames that function
+     * (SymbolManager.tryUpdatingDefaultFunction, Ghidra 10.x to 12.x).
+     */
+    private enum AtDefaultFunction {
+        /** let createLabel name the function (LABEL rows, names=auto|force) */
+        RENAME,
+        /** create no label, log a warning (stale, alias and DATA rows, names=keep) */
+        SKIP,
+        /** create no label, count only (patch rows: the patch is not the function's name) */
+        SKIP_QUIETLY
+    }
+
+    /**
      * Creates label {@code name} at {@code addr} unless a symbol of that name is already
      * there. With {@code primaryIfAllowed} the label becomes primary when the current
      * primary symbol may be taken over (names policy); never over a function symbol.
+     * {@code atDefault} decides what happens at the entry of a default-named function.
      */
-    private void ensureLabel(Address addr, String name, boolean primaryIfAllowed, RowLog log) {
+    private void ensureLabel(Address addr, String name, boolean primaryIfAllowed,
+            AtDefaultFunction atDefault, RowLog log) {
+        if (findSymbolAt(addr, name) == null) {
+            Function fn = listing.getFunctionAt(addr);
+            // functionsNamed: in dry-run the earlier row's rename has not really happened
+            if (fn != null && fn.getSymbol().getSource() == SourceType.DEFAULT &&
+                !functionsNamed.contains(addr)) {
+                if (atDefault != AtDefaultFunction.RENAME) {
+                    count("labels.default-function-skipped");
+                    if (atDefault == AtDefaultFunction.SKIP) {
+                        log.warnings.add("label " + name + " not created: the default-named " +
+                            "function " + fn.getName() + " starts here and a label would rename " +
+                            "it; the name is only in the comment");
+                    }
+                    return;
+                }
+                functionsNamed.add(addr);
+                if (opts.dryRun) {
+                    log.actions.add("name function " + fn.getName() + " -> " + name);
+                    count("labels.default-function-named");
+                    return;
+                }
+                try {
+                    symbolTable.createLabel(addr, name, SourceType.USER_DEFINED);
+                    count("labels.default-function-named");
+                }
+                catch (Exception e) {
+                    log.errors.add("label " + name + " failed: " + e.getMessage());
+                }
+                return;
+            }
+        }
         Symbol prim = symbolTable.getPrimarySymbol(addr);
         boolean wantPrimary = primaryIfAllowed &&
             (prim == null || prim.isDynamic() ||
@@ -2008,6 +2201,7 @@ public class D2BSImport extends GhidraScript {
             if (wantPrimary && !existing.isPrimary()) {
                 if (opts.dryRun) {
                     log.actions.add("make label " + name + " primary");
+                    count("labels.made-primary");
                 }
                 else if (existing.setPrimary()) {
                     count("labels.made-primary");
@@ -2019,6 +2213,9 @@ public class D2BSImport extends GhidraScript {
         if (opts.dryRun) {
             log.actions.add("label " + name + (wantPrimary ? " (primary)" : ""));
             count("labels.created");
+            if (wantPrimary && prim != null && !prim.isDynamic()) {
+                count("labels.made-primary");
+            }
             return;
         }
         try {
@@ -2033,12 +2230,77 @@ public class D2BSImport extends GhidraScript {
         }
     }
 
-    private void writeComments(Address addr, AddrCtx ctx) {
-        writeComment(addr, "plate", ctx.plate);
-        writeComment(addr, "pre", ctx.pre);
-        writeComment(addr, "eol", ctx.eol);
-        writeBookmark(addr, BookmarkType.NOTE, ctx.notes);
-        writeBookmark(addr, BookmarkType.WARNING, ctx.warns);
+    /**
+     * Writes the collected bookmarks (at each row address) and comments. FlatProgramAPI's
+     * set*Comment (SetCommentCmd) stores a comment on the code unit that CONTAINS the address
+     * (for data: the primitive component there), while get*Comment reads the record at exactly
+     * the address. Comments are therefore keyed by {@link #commentAddress}: rows whose address is
+     * inside an instruction or a data primitive share the comment of that code unit, with their
+     * lines tagged "D2BS @addr". Reading and writing the same address keeps re-runs idempotent
+     * and never discards text the script does not own.
+     */
+    private void writeAnnotations() {
+        Map<Address, AddrCtx> byCommentAddr = new LinkedHashMap<>();
+        for (Pending p : pending) {
+            try {
+                writeBookmark(p.addr, BookmarkType.NOTE, p.ctx.notes);
+                writeBookmark(p.addr, BookmarkType.WARNING, p.ctx.warns);
+            }
+            catch (RuntimeException e) {
+                error("bookmarks at " + p.addr + ": unexpected " + e);
+            }
+            Address ca;
+            try {
+                ca = commentAddress(p.addr);
+            }
+            catch (RuntimeException e) {
+                ca = null;
+            }
+            if (ca == null) {
+                if (p.ctx.hasComments()) {
+                    warn("no code unit holds comments at " + p.addr + "; comments not written");
+                }
+                continue;
+            }
+            byCommentAddr.computeIfAbsent(ca, k -> new AddrCtx())
+                    .addCommentsFrom(p.ctx, ca.equals(p.addr) ? null : p.addr.toString());
+            if (!ca.equals(p.addr) && p.ctx.hasComments()) {
+                count("comments.offcut-rows");
+            }
+        }
+        for (Map.Entry<Address, AddrCtx> e : byCommentAddr.entrySet()) {
+            Address a = e.getKey();
+            AddrCtx ctx = e.getValue();
+            try {
+                writeComment(a, "plate", ctx.plate);
+                writeComment(a, "pre", ctx.pre);
+                writeComment(a, "eol", ctx.eol);
+            }
+            catch (RuntimeException ex) {
+                error("comments at " + a + ": unexpected " + ex);
+            }
+        }
+    }
+
+    /**
+     * The address whose comment record SetCommentCmd writes for {@code addr}: the start of the
+     * code unit containing it, or for data the start of the primitive component at that
+     * offset. Null if there is none (SetCommentCmd would then fail).
+     */
+    private Address commentAddress(Address addr) {
+        CodeUnit cu = listing.getCodeUnitContaining(addr);
+        if (cu == null) {
+            return null;
+        }
+        Address min = cu.getMinAddress();
+        if (min.equals(addr)) {
+            return addr;
+        }
+        if (cu instanceof Data) {
+            Data prim = ((Data) cu).getPrimitiveAt((int) addr.subtract(min));
+            return prim == null ? null : prim.getMinAddress();
+        }
+        return min;
     }
 
     private void writeComment(Address addr, String kind, List<String> ours) {
@@ -2071,26 +2333,46 @@ public class D2BSImport extends GhidraScript {
         if (opts.dryRun) {
             return;
         }
+        boolean ok;
         switch (kind) {
             case "plate":
-                setPlateComment(addr, merged);
+                ok = setPlateComment(addr, merged);
                 break;
             case "pre":
-                setPreComment(addr, merged);
+                ok = setPreComment(addr, merged);
                 break;
             default:
-                setEOLComment(addr, merged);
+                ok = setEOLComment(addr, merged);
                 break;
+        }
+        if (!ok) {
+            error(kind + " comment at " + addr + " could not be set (no code unit)");
         }
     }
 
+    /**
+     * Sets (or replaces: one bookmark per address, type and category) the D2BS bookmark of
+     * {@code type}; removes it when the rows at this address no longer call for one.
+     */
     private void writeBookmark(Address addr, String type, List<String> texts) {
+        Bookmark old = bookmarks.getBookmark(addr, type, BOOKMARK_CATEGORY);
         if (texts.isEmpty()) {
+            if (old != null) {
+                count("bookmarks.removed");
+                if (!opts.dryRun) {
+                    bookmarks.removeBookmark(old);
+                }
+            }
+            return;
+        }
+        String text = String.join(" | ", texts);
+        if (old != null && text.equals(old.getComment())) {
+            count("bookmarks.unchanged");
             return;
         }
         count("bookmarks." + type.toLowerCase(Locale.ROOT));
         if (!opts.dryRun) {
-            bookmarks.setBookmark(addr, type, BOOKMARK_CATEGORY, String.join(" | ", texts));
+            bookmarks.setBookmark(addr, type, BOOKMARK_CATEGORY, text);
         }
     }
 
@@ -2124,10 +2406,14 @@ public class D2BSImport extends GhidraScript {
     // Summary
     // ------------------------------------------------------------------------------------
 
-    private void printSummary(List<Row> rows) {
+    private void printSummary(List<Row> rows, boolean cancelled) {
         StringBuilder b = new StringBuilder();
-        b.append("D2BSImport summary").append(opts.dryRun ? " (dry run: nothing was changed)" : "")
-                .append('\n');
+        b.append("D2BSImport summary").append(opts.dryRun
+                ? " (dry run: nothing was changed; counts are what a real run would do)"
+                : "").append(cancelled
+                ? " (CANCELLED: rows after the cancel were not processed and no comment or " +
+                    "bookmark was written; changes made so far are kept, Undo reverts the run)"
+                : "").append('\n');
         b.append(String.format("  %-11s %6s %8s %8s %7s%n", "kind", "rows", "applied", "skipped",
             "failed"));
         int[] tot = new int[4];
@@ -2157,18 +2443,24 @@ public class D2BSImport extends GhidraScript {
             counter("signatures.applied"), counter("signatures.failed"),
             counter("signatures.asm-only-skipped"), counter("signatures.skipped"),
             counter("signatures.alias"), counter("signatures.cc-mismatch")));
-        b.append(String.format("  labels: created %d, already present %d, made primary %d; " +
-            "stale rows marked only %d%n", counter("labels.created"), counter("labels.existing"),
-            counter("labels.made-primary"), counter("stale.marked")));
+        b.append(String.format("  labels: created %d, already present %d, made primary %d, " +
+            "default-named functions named by a LABEL row %d, not created at a default-named " +
+            "function %d; stale rows marked only %d%n", counter("labels.created"),
+            counter("labels.existing"), counter("labels.made-primary"),
+            counter("labels.default-function-named"), counter("labels.default-function-skipped"),
+            counter("stale.marked")));
         b.append(String.format("  data types: applied %d, already applied %d, not applied " +
             "(conflict) %d, type unknown %d, untyped rows %d%n", counter("data.applied"),
             counter("data.already"), counter("data.conflict"), counter("data.type-missing"),
             counter("data.untyped")));
         b.append(String.format("  patch sites: boundary check ok %d, failed %d%n",
             counter("patches.check-ok"), counter("patches.check-failed")));
-        b.append(String.format("  comments changed: plate %d, pre %d, eol %d; bookmarks set: " +
-            "note %d, warning %d%n", counter("comments.plate"), counter("comments.pre"),
-            counter("comments.eol"), counter("bookmarks.note"), counter("bookmarks.warning")));
+        b.append(String.format("  comments changed: plate %d, pre %d, eol %d (rows inside a " +
+            "code unit, commented on it: %d); bookmarks set: note %d, warning %d, unchanged %d, " +
+            "removed %d%n", counter("comments.plate"), counter("comments.pre"),
+            counter("comments.eol"), counter("comments.offcut-rows"), counter("bookmarks.note"),
+            counter("bookmarks.warning"), counter("bookmarks.unchanged"),
+            counter("bookmarks.removed")));
         appendList(b, "errors", errors);
         appendList(b, "warnings", warnings);
         println(b.toString());

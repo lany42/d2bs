@@ -740,14 +740,14 @@ Leaves the game, shuts D2BS down and terminates the process.
 - **Preconditions:** none.
 - **Threading & blocking:** runs on the script thread.
   - `Shutdown()` (`D2BS.cpp:143-179`) is a no-op if `!Vars.bNeedShutdown` (`D2BS.cpp:144-145`).
-  - Otherwise it sets `Vars.bActive = FALSE` and, unless `Vars.bShutdownFromDllMain`, waits `INFINITE` for the D2BS main thread. That thread leaves its `while (Vars.bActive)` loop (`D2Handlers.cpp:70`) and runs `ScriptEngine::Shutdown()` (`D2Handlers.cpp:116`, `ScriptEngine.cpp:140-166`):
-    - `StopAll(true)` stops every script. For the caller it waits at most 100 ms, because it is not the caller's thread and the engine is `Stopping` (`ScriptEngine.cpp:247-252`, `Script.cpp:269-278`).
+  - Otherwise it sets `Vars.bActive = FALSE` and, unless `Vars.bShutdownFromDllMain`, waits `INFINITE` for `D2Thread` ([architecture.md §2.1](../architecture.md#21-thread-inventory)). That thread leaves its `while (Vars.bActive)` loop (`D2Handlers.cpp:70`) and runs `ScriptEngine::Shutdown()` (`D2Handlers.cpp:116`, `ScriptEngine.cpp:140-166`):
+    - It sets the engine state to `Stopping` and then calls `StopAll(true)`, which returns at once because the state is no longer `Running` (`ScriptEngine.cpp:145-146`, `:168-170`). No script, the caller included, is stopped. Only the console gets `Stop(true, true)`, with a wait of at most 100 ms (`ScriptEngine.cpp:147`, `Script.cpp:270`).
     - `DisposeScript` only queues a `"DisposeMe"` event for scripts on other threads, including the caller (`ScriptEngine.cpp:81-89`).
-    - It then destroys the engine's own context and runtime and calls `JS_ShutDown()` (`ScriptEngine.cpp:155-160`).
+    - The `JS_DestroyContext`/`JS_DestroyRuntime`/`JS_ShutDown()` block is skipped, because `ScriptEngine::runtime` is never assigned (`ScriptEngine.cpp:19`, `:155-160`).
   - Back on the caller's thread, `Shutdown()` restores the WNDPROC, removes patches, hooks, the DDE server and the timer, and deletes all `Vars` critical sections, including `cGameLoopSection` (`D2BS.cpp:151-175`).
 - **Side effects:** `D2CLIENT_ExitGame()` if not at menu (`JSGame.cpp:1011-1012`), `Shutdown()`, `TerminateProcess(GetCurrentProcess(), 0)` (`JSGame.cpp:1015-1016`).
 - **Game internals:** `D2CLIENT_ExitGame` (`D2Ptrs.h:114`).
-- **Quirks / bugs:** the caller's own runtime is not destroyed: its disposal is only queued. But `JS_ShutDown()` has already run while that runtime and other script runtimes are alive. The native touches no JSAPI after `Shutdown()` and goes straight to `TerminateProcess`, so the process ends inside the native. Critical sections are deleted while the game thread may still use them (`D2BS.cpp:162-175`). `D2CLIENT_ExitGame()` is called from the script thread. See [../architecture.md](../architecture.md) for the shutdown sequence.
+- **Quirks / bugs:** the caller's own runtime is not destroyed: its disposal is only queued, and `JS_ShutDown()` is never called. The native touches no JSAPI after `Shutdown()` and goes straight to `TerminateProcess`, so the process ends inside the native. Critical sections are deleted while the game thread may still use them (`D2BS.cpp:162-175`). `D2CLIENT_ExitGame()` is called from the script thread. See [../architecture.md](../architecture.md) for the shutdown sequence.
 
 ---
 
@@ -928,5 +928,5 @@ Source comment on `experience`: "doesnt tap the last 2 levels of exp, ends at le
 - Which of the two `D2CLIENT_ClickBeltRight` argument orders (`JSGame.cpp:539` vs `JSGame.cpp:648`) matches `ClickBeltRight_I` at RVA `0x98A90` needs disassembly (see [../memory/call-stubs.md](../memory/call-stubs.md)).
 - What `D2LANG_GetLocaleText` returns for unknown ids, and the size of the chat buffers behind `p_D2CLIENT_ChatMsg` / `p_D2MULTI_ChatBoxMsg` (overflow bound for `say`).
 - Whether the UI-flag numbering in `Constants.h` (1.13-era origin) is correct for 1.14d.
-- Whether SpiderMonkey (mozilla-release v22) pads native `argv` up to the declared `nargs`. [embedding.md](../spidermonkey/embedding.md) says it does, but the shipped headers do not settle it. Every over-read listed here except `getMouseCoords`' `argv[0]` is at or beyond the declared `nargs`, so the answer does not change those findings.
+- Whether SpiderMonkey (mozilla-release v22) pads native `argv` up to the declared `nargs`. The shipped headers do not settle it ([OQ-SM-01](../OPEN_QUESTIONS.md#oq-sm-01); [embedding.md §4.3](../spidermonkey/embedding.md#43-how-natives-receive-arguments-return-values-and-report-errors) also treats it as open). Every over-read listed here except `getMouseCoords`' `argv[0]` is at or beyond the declared `nargs`, so the answer does not change those findings.
 - Whether the chat line injected by `say()` in game passes through the `GameInput` intercept, and so consumes `bDontCatchNextMsg` itself. This depends on the code path inside `D2CLIENT_Say_I` (RVA `0x7CBDA`). It is also unknown whether that routine expects a `MSG*` or the `MSG**` that `Say_ASM` actually passes in EBX (`Core.cpp:79`, `107`).

@@ -49,7 +49,7 @@ Thread labels are defined in [§2.1](#21-threads). Delivery: **Q** = queued to t
 | `gameevent` | `mode, param1, param2, name1, name2` | packet 0x5A → `EventMessagesHandler` → `GameActionEvent` (`Events.cpp:288`) | G | Q | ignored |
 | `playerassign` | `unitId` | `PlayerAssignment_Intercept` → `GamePlayerAssignment` → `PlayerAssignEvent` (`Events.cpp:99`) | G | Q | ignored |
 | `copydata` | `mode, msg` | `WM_COPYDATA` → `GameEventHandler` → `CopyDataEvent` (`Events.cpp:243`) | W | Q | ignored (sender always gets `TRUE`) |
-| `scriptmsg` | `...values` | `scriptBroadcast()` / `Script.prototype.send()` | C | Q | ignored |
+| `scriptmsg` | `...values` | `scriptBroadcast()` / `D2BSScript.prototype.send()` | C | Q | ignored |
 | hook `click` (`ScreenHookClick`) | `button, x, y` | WH_MOUSE button-down → `Genhook::Click` (`ScreenHook.cpp:214`) | W | B3000 | `true` → button-down message swallowed |
 | hook `hover` (`ScreenHookHover`) | `x, y` | `Genhook::Hover` (`ScreenHook.cpp:249`) | — | — | **dead code**: never produced |
 
@@ -73,7 +73,7 @@ Every `Events.cpp` producer runs `ScriptEngine::ForEachScript(callback, &helper,
 - `script->IsRunning()`: a context exists, the script is not aborted, not paused, and `hasActiveCX` is set (`Script.cpp:340-342`).
 - `script->IsListenerRegistered(name)`: `functions.count(name) > 0` (`Script.cpp:348-350`). A key left with an empty list by `clearEvent(name)` still counts ([globals-core.md](globals-core.md#cleareventname)).
 
-The only script-visible producers that skip these checks are the screen-hook producers (they test only `owner && JSVAL_IS_FUNCTION(owner cx, handler)`, `ScreenHook.cpp:219`) and `Script.prototype.send`, which tests `IsRunning()` only (`JSScript.cpp:111`). The internal producers skip both checks: `Script::RunCommand` (`Command`, `Script.cpp:92-101`), `ScriptEngine::DisposeScript` (`DisposeMe`, `ScriptEngine.cpp:85-88`) and the timer APC `EventTimerProc` (`ScriptEngine.cpp:837-839`).
+The only script-visible producers that skip these checks are the screen-hook producers (they test only `owner && JSVAL_IS_FUNCTION(owner cx, handler)`, `ScreenHook.cpp:219`) and `D2BSScript.prototype.send`, which tests `IsRunning()` only (`JSScript.cpp:111`). The internal producers skip both checks: `Script::RunCommand` (`Command`, `Script.cpp:92-101`), `ScriptEngine::DisposeScript` (`DisposeMe`, `ScriptEngine.cpp:85-88`) and the timer APC `EventTimerProc` (`ScriptEngine.cpp:837-839`).
 
 No producer filters on `ScriptState`: `InGame`, `OutOfGame` and the console (`Command` state) scripts all receive every event they listen for. The only state-dependent behaviour is on the consumer side (an `InGame` script does not drain while the client is at the menu, [§10.8](#108-script-state-effects)).
 
@@ -449,7 +449,7 @@ All are asynchronous (Q) and fire on G. `melife`, `memana`, `itemaction` and `ga
 - **Signature:** `function (...values)`. Each value is a **structured-clone copy** of what the sender passed, read into the receiver's own runtime (`ScriptEngine.cpp:709-737`).
 - **Producers:**
   - `scriptBroadcast(...)` (`JSCore.cpp:532`) → `ScriptBroadcastEvent` `Events.cpp:168` → `BCastEventCallback` `Events.cpp:148`. Every running script with a `scriptmsg` listener receives it, **sender included**. Full details are in [globals-core.md](globals-core.md#scriptbroadcastvalues).
-  - `Script.prototype.send(...)` (`JSScript.cpp:107`) targets one script ([utility-classes.md](utility-classes.md#d2bsscriptprototypesendvalues)). It:
+  - `D2BSScript.prototype.send(...)` (`JSScript.cpp:107`) targets one script ([utility-classes.md](utility-classes.md#d2bsscriptprototypesendvalues)). It:
     - checks only `IsRunning()`, not the listener;
     - pushes to the queue directly;
     - calls `TriggerOperationCallback` but **not** `SetEvent(eventSignal)` (`JSScript.cpp:111-127`), so a target sitting in `delay(n)` sees the message only after its wait expires;
@@ -743,7 +743,7 @@ VA = 0x400000 + offset; `GetDllOffset` ignores the module name and resolves agai
 | `SetWindowsHookEx(WH_KEYBOARD)` `Helpers.cpp:185` | — | `KeyPress` `D2Handlers.cpp:206` | `keydown`, `keyup`, `keydownblocker`, `keyupblocker` |
 | `SetWindowsHookEx(WH_MOUSE)` `Helpers.cpp:187` | — | `MouseMove` `D2Handlers.cpp:296` | `mouseclick`, `mousemove`, hook `click` |
 | `SetWindowLong(GWL_WNDPROC)` `Helpers.cpp:176` | — | `GameEventHandler` `D2Handlers.cpp:176` | `copydata` |
-| JS `scriptBroadcast` / `Script.send` | `JSCore.cpp:532`, `JSScript.cpp:107` | `ScriptBroadcastEvent` `Events.cpp:168` | `scriptmsg` |
+| JS `scriptBroadcast` / `D2BSScript.prototype.send` | `JSCore.cpp:532`, `JSScript.cpp:107` | `ScriptBroadcastEvent` `Events.cpp:168` | `scriptmsg` |
 
 ---
 
@@ -810,7 +810,7 @@ Each item is labelled as a bug, a quirk or a behaviour; "plausible" marks a cons
     - `evt->name` leaks (`ScreenHook.cpp:224`, `ScreenHook.cpp:237-244`);
     - a paused owner still gets queued events (`ScreenHook.cpp:219`).
 14. **`hover` handlers are dead** (`D2Handlers.cpp:343`). The dormant code roots on a NULL global context through the comma operator (`ScreenHook.cpp:257`) and passes 3 arguments from a 2-element array (`ScriptEngine.cpp:591`).
-15. **`script.send()` (bug):** no `SetEvent` (latency of up to the target's remaining `delay`), no listener check, and an `Event` leak when the target is not running (`JSScript.cpp:110-127`).
+15. **`D2BSScript.prototype.send()` (bug):** no `SetEvent` (latency of up to the target's remaining `delay`), no listener check, and an `Event` leak when the target is not running (`JSScript.cpp:110-127`).
 16. **Derived events depend on `gamepacket` verdicts (behaviour):** blocking a packet silently suppresses `chatmsg*`, `itemaction`, `gameevent`, `melife` and `memana` (`D2Handlers.cpp:151-166`).
 17. **`melife`/`memana` de-duplication (quirk)** uses function-static state that is never reset between games (`D2NetHandlers.cpp:40-50`).
 18. **`gameevent` (quirk):**
