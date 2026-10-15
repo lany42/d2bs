@@ -39,6 +39,9 @@ here in [../js-api/globals-game.md](../js-api/globals-game.md) and
   `DisplayOverheadMsg_ASM`, `PlaySound`. Three of them target **stale 1.13 ASMPTRs**
   (`Interact_I`, `ShopAction_I`, `GetItemDesc_I`; also `GameAddUnit_I` from the disabled
   `AddUnit_Intercept`). `D2CLIENT_PlaySound` would crash if called (returns to address 0).
+- Not covered because it does not call game code: the only other inline asm in the repository,
+  the `GET_CURRENT_CONTEXT_STACKWALKER_CODEPLEX` macro (`StackWalker.h:232`), which reads
+  `EIP`/`EBP`/`ESP` for crash logs.
 - Several stubs write callee-saved registers (`ESI`, `EDI`, `EBX`) without restoring them; all of
   those are in the dead set.
 - `D2CLIENT_ClickBeltRight` is called with two different argument orders
@@ -167,8 +170,10 @@ directly (`JSUnit.cpp:1519`).
 
 ### 5.2 Stack-rewriting tail jumps (inventory and belt clicks)
 
-These pop the caller's return address, move one stack argument into `EAX`, and put the return
-address back where that argument was, so the game function sees one stack argument fewer.
+The first three pop the caller's return address, move the first stack argument into `EAX`
+(`pop eax; xchg eax, [esp]`) and leave the return address where that argument was, so the game
+function sees one stack argument fewer. `D2CLIENT_ClickBelt` only copies `EDX` into `EAX`;
+`D2CLIENT_ClickShopItem_ASM` inserts an extra stack argument instead.
 
 | Stub (definition) | C in | At game entry | Target | Callee must | Callers |
 |---|---|---|---|---|---|
@@ -176,7 +181,7 @@ address back where that argument was, so the game function sees one stack argume
 | `D2CLIENT_ClickItemRight_ASM` `D2Helpers.cpp:800-808`, `__fastcall` | `ECX` = x, `EDX` = y, stack: `Location, Player, pUnitInventory` | `ECX` = y, `EDX` = x (`xchg`), `EAX` = `Location`; `[ESP+4]` = player, `[ESP+8]` = inventory | `D2CLIENT_ClickItemRight_I` (ASMPTR, RVA `0x87740`, VA `0x00487740`, `D2Ptrs.h:237`) | `ret 8` | `clickItem()` via `D2CLIENT_RightClickItem` |
 | `D2CLIENT_ClickBeltRight_ASM` `D2Helpers.cpp:810-817`, `__fastcall` | `ECX` = arg1, `EDX` = arg2, stack: `HoldShift, dwPotPos` | `ECX`, `EDX` unchanged, `EAX` = `HoldShift` (the comment says "location"), `[ESP+4]` = `dwPotPos` | `D2CLIENT_ClickBeltRight_I` (ASMPTR, RVA `0x98A90`, VA `0x00498A90`, `D2Ptrs.h:236`) | `ret 4` | `clickItem()` via `D2CLIENT_ClickBeltRight` |
 | `D2CLIENT_ClickBelt` `D2Helpers.cpp:783-788`, `__fastcall` | `ECX` = x, `EDX` = y, stack: `pInventoryData` | `ECX` = x, `EAX` = `EDX` = y, `[ESP+4]` = inventory | `D2CLIENT_ClickBelt_I` (ASMPTR, RVA `0x98870`, VA `0x00498870`, `D2Ptrs.h:235`) | `ret 4` | `clickItem()` |
-| `D2CLIENT_ClickShopItem_ASM` `D2Helpers.cpp:762-774`, `__fastcall` | `ECX` = x, `EDX` = y, stack: `BuyOrSell` | `ESI` = x, `EDI` = y (**neither restored**); stack rebuilt as `[ESP+4]` = 1, `[ESP+8]` = `BuyOrSell` | `D2CLIENT_ClickShopItem_I` (ASMPTR, RVA `0xB2653`, VA `0x004B2653`, `D2Ptrs.h:234`, unaligned: a mid-function label) | `ret 8` | none ("obsoleted", "isn't finished anyway!", `D2Helpers.cpp:761`) |
+| `D2CLIENT_ClickShopItem_ASM` `D2Helpers.cpp:762-774`, `__fastcall` | `ECX` = x, `EDX` = y, stack: `BuyOrSell` | `ESI` = x, `EDI` = y (**neither restored**); stack rebuilt as `[ESP+4]` = 1, `[ESP+8]` = `BuyOrSell`; `ECX` = `BuyOrSell`, `EAX` = return address | `D2CLIENT_ClickShopItem_I` (ASMPTR, RVA `0xB2653`, VA `0x004B2653`, `D2Ptrs.h:234`, unaligned: a mid-function label) | `ret 8` | none ("obsoleted", "isn't finished anyway!", `D2Helpers.cpp:761`) |
 
 - `D2CLIENT_LeftClickItem_I`'s `FUNCPTR` prototype declares seven stack parameters with `Location`
   last (`D2Ptrs.h:96-98`). The stub passes six
@@ -187,14 +192,18 @@ address back where that argument was, so the game function sees one stack argume
   passes player and inventory.
 - `D2CLIENT_ClickBeltRight(pPlayer, pInventory, dwShift, dwPotPos)` (`D2Ptrs.h:502`)
   forwards its first argument to `ECX` and its second to `EDX`. The call sites disagree on the
-  order ([§9](#9-problems-found)).
+  order ([§9](#9-problems-found)). The stub itself names its parameters the other way round,
+  `(pInventory, pPlayer, HoldShift, dwPotPos)` (`D2Helpers.cpp:810`,
+  `D2Helpers.h:101`): the call at
+  `JSGame.cpp:539` follows the
+  stub's names, the two at `JSGame.cpp:648` and the next line follow the macro's.
 
 ### 5.3 Call-and-return stubs
 
 | Stub (definition) | C in | Saved / restored | At game entry | Target | Callee must | Result |
 |---|---|---|---|---|---|---|
 | `D2CLIENT_InitAutomapLayer_STUB` `D2Helpers.cpp:336-345`, `__fastcall` | `ECX` = layer number | `EDI` | `EDI` = `ECX` = layer number ("Updated 1.14d Registers changed.", `D2Helpers.cpp:339`) | `D2CLIENT_InitAutomapLayer_I` (FUNCPTR, RVA `0x58D40`, VA `0x00458D40`, `D2Ptrs.h:93`) | `ret` (no stack args) | `EAX` = `AutomapLayer*` |
-| `D2CLIENT_SendGamePacket_ASM` `D2Helpers.cpp:955-965`, `__fastcall` | `ECX` = length, `EDX` = `BYTE*` | `EDI` | `EDI` = length, `[ESP+4]` = packet pointer | `D2CLIENT_SendGamePacket_I` (ASMPTR, RVA `0x78350`, VA `0x00478350`, `D2Ptrs.h:283`) | `ret 4` (the stub `pop edi`s straight after the call) | `EAX` (declared `DWORD`; no caller reads it) |
+| `D2CLIENT_SendGamePacket_ASM` `D2Helpers.cpp:955-965`, `__fastcall` | `ECX` = length, `EDX` = `BYTE*` | `EDI` | `EDI` = `ECX` = length, `EDX` = `[ESP+4]` = packet pointer | `D2CLIENT_SendGamePacket_I` (ASMPTR, RVA `0x78350`, VA `0x00478350`, `D2Ptrs.h:283`) | `ret 4` (the stub `pop edi`s straight after the call) | `EAX` (declared `DWORD`; no caller reads it) |
 | `D2CLIENT_GetItemDesc_ASM` `D2Helpers.cpp:819-831`, `__fastcall` | `ECX` = item, `EDX` = `wchar_t*` buffer | `EDI` | `EDI` = buffer; `[ESP+4]` = item, `[ESP+8]` = 1 ("TRUE = New lines"), `[ESP+0xC]` = 0 | `D2CLIENT_GetItemDesc_I` (ASMPTR, RVA `0x2E380`, VA `0x0042E380`, `D2Ptrs.h:248`) **stale** | `ret 0Ch` | none |
 | `D2COMMON_DisplayOverheadMsg_ASM` `D2Helpers.cpp:833-845`, `__fastcall` | `ECX` = `UnitAny*` | none; **`ESI` clobbered** | `ESI` = `&unit->pOMsg` (`ECX+0xA4`), `EAX` = `unit->pOMsg`; `[ESP+4]` = 0, `[ESP+8]` = `pOMsg` | `D2COMMON_DisplayOverheadMsg_I` (ASMPTR, RVA `0x2611A0`, VA `0x006611A0`, `D2Ptrs.h:355`) | `ret 8` | none |
 | `D2CLIENT_GetMinionCount` `D2Helpers.cpp:927-945`, **non-naked `__cdecl`** | stack: `pUnit`, `dwType` (compiler frame) | `EAX`, `ECX`, `EDX` pushed/popped around the call; the compiler handles the rest | `ECX` = unit, `EDX` = type | `D2CLIENT_GetMinionCount_I` (ASMPTR, RVA `0x78EE0`, VA `0x00478EE0`, `D2Ptrs.h:262`) | `ret` (nothing pushed) | `EAX`, stored to `dwResult` and returned normally |
@@ -294,7 +303,10 @@ but also call or jump back into it. Generated list of every `D2Ptrs.h` symbol re
 Register set-up for these transfers: `D2NET_ReceivePacket_I` gets the original `ECX` (packet),
 `EDX` (length, or 0 when blocked) and a re-pushed copy of the stack argument; `D2CLIENT_InputCall_I`,
 `D2MULTI_ChannelInput_I`, `D2CLIENT_AssignPlayer_I`, `D2CLIENT_CongratsScreen_I` are called with the
-registers as they were at the patch site (`ChannelInput_I`: `ECX` only); `D2CLIENT_GameLeave_I`
+registers as they were at the patch site (`ChannelInput_I`: `ECX` only) but one return address
+deeper than the call they replace (`AssignPlayer_I`: depending on the displaced instruction, see
+[patches-and-hooks.md §5.9](patches-and-hooks.md#59-playerassignment_intercept--player-unit-assigned)),
+so they must not read stack arguments (inference); `D2CLIENT_GameLeave_I`
 is tail-jumped to and returns straight to the patch site; `D2CLIENT_SendPacket_II`,
 `BNCLIENT_DClass` and `BNCLIENT_DLod` are labels inside the patched game function where execution
 resumes. Details per intercept in [patches-and-hooks.md §5](patches-and-hooks.md#5-intercept-reference).
@@ -387,7 +399,7 @@ Generated: every `ASMPTR` in `D2Ptrs.h`, where inline asm references it, and oth
 
 | Problem | Where | Impact |
 |---|---|---|
-| `D2CLIENT_ClickBeltRight` argument order differs between call sites: `(pInventory, pPlayer, ...)` at `JSGame.cpp:539` vs `(pPlayer, pInventory, ...)` at `JSGame.cpp:648` and the next line | macro `D2Ptrs.h:502` → `ECX`/`EDX` | one of the two `clickItem()` belt paths passes player and inventory swapped to `ClickBeltRight_I`; which one is right needs the binary |
+| `D2CLIENT_ClickBeltRight` argument order differs between call sites: `(pInventory, pPlayer, ...)` at `JSGame.cpp:539` vs `(pPlayer, pInventory, ...)` at `JSGame.cpp:648` and the next line | macro `D2Ptrs.h:502` → `ECX`/`EDX` | one of the two `clickItem()` belt paths passes player and inventory swapped to `ClickBeltRight_I`; the first call matches the stub's own parameter names (`pInventory, pPlayer`), the other two match the macro's; which one is right needs the binary |
 | Stale 1.13 targets | `D2CLIENT_Interact_I` `D2Ptrs.h:240`, `D2CLIENT_ShopAction_I` `D2Ptrs.h:245`, `D2CLIENT_GetItemDesc_I` `D2Ptrs.h:248`, `D2CLIENT_GameAddUnit_I` `D2Ptrs.h:273` | none today (no live callers); re-enabling `D2CLIENT_Interact()` (`D2Helpers.cpp:398`, its only caller commented out at `JSUnit.cpp:882`) would jump into unrelated 1.14d code |
 | Returns to address 0 | `D2CLIENT_PlaySound` `D2Helpers.cpp:856-870` | any call crashes; `playSound()` has the call commented out (`JSGame.cpp:1038`) |
 | Callee-saved registers clobbered | `ESI` in `D2CLIENT_Interact_ASM`, `D2COMMON_DisplayOverheadMsg_ASM`; `ESI`/`EDI` in `D2CLIENT_ClickShopItem_ASM`; `EBX` in `D2CLIENT_PlaySound` | all unused; any revival must save/restore them |
