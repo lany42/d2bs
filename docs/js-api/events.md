@@ -758,7 +758,7 @@ These are facts only; the synthesis is in [../rpc-considerations.md](../rpc-cons
 - **There is no event id, timestamp, sequence number or acknowledgement** anywhere in the pipeline. Ordering is per-recipient FIFO only.
 - **Hidden coupling:**
   - packet blocking suppresses the derived events;
-  - `say()` uses a global one-shot flag that suppresses the next `chatinput`/whisper (`Core.cpp:93`);
+  - `say()` uses a global one-shot flag that suppresses the next `chatinput`/whisper, unless an incoming 0x26 chat packet consumes it first without suppressing anything (`Core.cpp:93`, `D2NetHandlers.cpp:61-62`);
   - `QuitOnHostile` exits the game before `gameevent` fires;
   - the `HPMP` de-duplication state is global.
 
