@@ -236,11 +236,22 @@ The queued event runs only when the owner script pumps events: in `operationCall
 
 - **Game freeze up to 3 s per handled hook.** The game thread blocks in step 3 until the owning script pumps its events. A script busy in a long native, paused, or (with caching) finished stalls the whole client for 3000 ms per overlapping hook with a click handler, after which the click passes through.
 - **Self-deadlock (until timeout) from inside a click handler.** The game thread holds `globalSection` and `Vars.cGameLoopSection` during the wait. A handler that constructs a hook, sets `visible` or `text`, calls `remove()`, triggers a GC that finalizes a hook, or calls any native that takes the game-loop lock (`AutoCriticalRoom`, see [globals-game.md](globals-game.md)) blocks until the 3 s timeout expires; its return value is then ignored. (Blocking packet events release the game lock around their wait, `Events.cpp:312-314`; `Click` does not.)
-- **Cross-talk on `Vars.eventSignal`.** The same manual-reset event is reset/set by `keydownblocker` (`Events.cpp:63-66`, `ScriptEngine.cpp:650-652`), chat/whisper blockers (`Events.cpp:197-200`, `ScriptEngine.cpp:567-569`) and packet events (`Events.cpp:309-313`, `ScriptEngine.cpp:765`, which can run on script threads). A foreign `SetEvent` wakes `Click` early: it reads `block = false` and frees `evt` while it is still queued → use-after-free when the owner later executes it. A foreign `ResetEvent` after the handler signalled turns a handled click into a 3 s timeout.
+- **Cross-talk on `Vars.eventSignal`.** The same manual-reset event is reset and set by several other paths:
+  - `keydownblocker` (`Events.cpp:63-66`, `ScriptEngine.cpp:650-652`);
+  - chat and whisper blockers (`Events.cpp:197-200`, `ScriptEngine.cpp:567-569`);
+  - packet events (`Events.cpp:309-313`, `ScriptEngine.cpp:765`), which can run on script threads;
+  - the late completion of any earlier timed-out click (`ScriptEngine.cpp:683`).
+
+  A foreign `SetEvent` wakes `Click` early: it reads `block = false` and frees `evt` while the event is still queued, so the owner later executes freed memory (use-after-free). A foreign `ResetEvent` that lands after the handler signalled but before `Click` starts waiting turns a handled click into a 3 s timeout.
 - **Cross-thread JSAPI.** `JSVAL_IS_FUNCTION`, `AutoRoot` construction (`JS_AddNamedValueRoot`) and destruction (`JS_BeginRequest`/`JS_RemoveValueRoot`/`JS_EndRequest`, `AutoRoot.cpp:10-20`) are executed on the game thread against a runtime owned by the script thread.
-- **Phantom clicks.** Hooks that are not drawn still consume clicks: OOG-script hooks while in game, automap hooks while the automap is closed (and at their world-coordinate position), hooks at `x == -1`.
+- **Phantom clicks.** Hooks that are not drawn still consume clicks:
+  - OOG-script hooks while in game;
+  - `IG` hooks (every `Frame`, the console script's hooks) while in menus;
+  - automap hooks while the automap is closed, hit-tested at their world-coordinate position;
+  - hooks at `x == -1`;
+  - hooks of finished but cached scripts (`DisableCache=false`). These stall for the full 3 s, because nobody pumps their queue.
 - **Line hooks never receive clicks** (`IsInRange` is constant false).
-- **Click function rooting.** `SetClickHandler` stores the value unrooted (`ScreenHook.cpp:279`, rooting commented out `:280-289`). A function passed only through the constructor can be collected while the hook lives, leaving a dangling `jsval` that `Click` dereferences (see [Open questions](#open-questions) for values assigned through the property).
+- **Click function rooting.** `SetClickHandler` stores the value unrooted (`ScreenHook.cpp:279`, rooting commented out `:280-289`), and the hook classes have no trace hook (`js32.h:163-164`). A function that is not otherwise reachable (e.g. an anonymous closure passed only to the constructor) can be collected while the hook lives, leaving a dangling `jsval` that `Click` dereferences. A function reachable elsewhere, such as a global function declaration, is safe. For values assigned through the property, see [Open questions](#open-questions).
 
 ### Hover (dead code)
 
