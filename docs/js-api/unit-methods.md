@@ -1,6 +1,6 @@
 # Unit methods, unit search and `getUnit` / `getMercHP`
 
-Scope: this page documents every JS-callable function in the `unit_methods` table (`JSUnit.h:299-309`, 25 entries), the two global natives implemented in `JSUnit.cpp` (`getUnit`, `getMercHP`), and the unit search and iteration model behind them (`Unit.cpp`, `D2Helpers.cpp`). Everything comes from the C++ source; legacy docs (`doc/Unit.h`, `doc/Me.h`, `doc/globalFuncs.h`, `resources/api.html`, `README.md`) are used only to cross-check, and each place they disagree with the code is called out. Unit properties, `me`-only properties and most class facts are in [unit-properties.md](unit-properties.md). Event dispatch is in [events.md](events.md). Offsets, structs and asm stubs are in [../memory/](../memory/README.md).
+Scope: every JS-callable function in the `unit_methods` table (`JSUnit.h:299-309`, 25 entries), the two global natives implemented in `JSUnit.cpp` (`getUnit`, `getMercHP`), and the unit search and iteration model behind them (`Unit.cpp`, `D2Helpers.cpp`). Everything comes from the C++ source; legacy docs (`doc/Unit.h`, `doc/Me.h`, `doc/globalFuncs.h`, `resources/api.html`, `README.md`) are used only to cross-check, and each place they disagree with the code is called out. Unit properties, `me`-only properties and most class facts are in [unit-properties.md](unit-properties.md). Event dispatch is in [events.md](events.md). Offsets, structs and asm stubs are in [../memory/](../memory/README.md).
 
 ## Table of contents
 
@@ -686,7 +686,7 @@ VA = 0x400000 + RVA, because `GetDllOffset` ignores the DLL name and adds the of
 - The meaning of `StatList.dwFlags` bit 31 (which gates `SetStatVec`), and of `D2CLIENT_GetUIState(UI_GAME)` (UI var 0) in the waypoint branch.
 - Does the game free a unit's previous `pOMsg` when `overhead` replaces it?
 - Shop mode 6: the source only shows a 0x80 flag byte in the dead packet code.
-- `getUnit` without a string name passes the literal `""` to `JS_free`. Does `JS_free` in `js_static.lib` reach `free()` (the headers only show the inline `js_free`), and what does the CRT heap that D2BS links do with a non-heap pointer: silent failure or heap-corruption abort?
-- What does `JS_GetPrivate` return for an object whose class lacks `JSCLASS_HAS_PRIVATE` (a plain `{}` passed as `this` via `call`/`apply`, or as the `npc` argument of `getItemCost`)? This decides whether the class-unchecked private reads are a crash or a silent type confusion.
+- `getUnit` without a string name passes the literal `""` to `JS_free`. *Partly resolved:* `JS_free` in `js_static.lib` calls the DLL CRT's `free` directly (`push p; call [__imp__free]`; [../OPEN_QUESTIONS.md](../OPEN_QUESTIONS.md#appendix-a-resolved-during-triage), R-08). Still open: whether MSVCR100's `free` fails silently or aborts with heap corruption on a non-heap pointer ([OQ-WIN-06](../OPEN_QUESTIONS.md#oq-win-06)).
+- *Resolved* (R-09): `JS_GetPrivate` on an object whose class lacks `JSCLASS_HAS_PRIVATE` (a plain `{}` passed as `this` via `call`/`apply`, or as the `npc` argument of `getItemCost`) does no check. It returns the word just past the object's fixed slots (`[obj + 0x10 + 8 * nfixed]`, disassembly of `jsapi.obj`). The class-unchecked private reads are therefore type confusion with adjacent GC-heap memory: neither a reliable NULL nor a reliable crash.
 - Are `D2CLIENT_GetCursorItem` / `D2CLIENT_GetSelectedUnit` safe to call out of game (`getUnit(100/101)` has no state check)?
 - Is the 183 upper bound in `getState` right for 1.14d state counts?

@@ -1,6 +1,6 @@
 # Core globals (`JSCore.cpp`, `JSHash.cpp`)
 
-This page documents every JavaScript global whose native lives in `JSCore.cpp` (38 names, 36 natives) or `JSHash.cpp` (10 names): script control and loading, timers and `delay`, listener registration, inter-script messaging, console and logging, clipboard and OS IPC, input simulation, raw packets, a few miscellaneous helpers, and hashing. Each entry is checked against the C++ source and covers argument handling, return values, the thread it runs on, blocking behaviour, side effects and bugs. The event catalog (names, arguments, who fires them) is in [events.md](events.md). How runtimes, contexts and globals are created is in [../spidermonkey/embedding.md](../spidermonkey/embedding.md). Other globals registered in the same table (`rand`, `sqlite_version`, `sqlite_memusage`, `dopen`, ...) are documented with their own subsystems; see [README.md](README.md).
+Scope: every JavaScript global whose native lives in `JSCore.cpp` (38 names, 36 natives) or `JSHash.cpp` (10 names): script control and loading, timers and `delay`, listener registration, inter-script messaging, console and logging, clipboard and OS IPC, input simulation, raw packets, a few miscellaneous helpers, and hashing. Each entry is checked against the C++ source and covers argument handling, return values, the thread it runs on, blocking behaviour, side effects and bugs. The event catalog (names, arguments, who fires them) is in [events.md](events.md). How runtimes, contexts and globals are created is in [../spidermonkey/embedding.md](../spidermonkey/embedding.md). Other globals registered in the same table (`rand`, `sqlite_version`, `sqlite_memusage`, `dopen`, ...) are documented with their own subsystems; see [README.md](README.md).
 
 ## Contents
 
@@ -333,7 +333,7 @@ Facts shared by `delay`, `setTimeout`, `setInterval`, `clearTimeout` and `clearI
    - `SetSkill`'s wait loop in 100 ms slices (`D2Helpers.cpp:273-281`), used by `Unit.prototype.setSkill` (`JSUnit.cpp:1744`; see [unit-methods.md](unit-methods.md));
    - the operation callback (`ScriptEngine.cpp:316-322`).
 
-   D2BS triggers the operation callback (`Script::TriggerOperationCallback`, `Script.h:171`, a no-op unless `hasActiveCX`) only from `FireEvent` (`Script.cpp:426`), `Pause`/`Resume`/`Stop` (`Script.cpp:220`, `Script.cpp:236`, `Script.cpp:266`), `RunCommand` (`Script.cpp:100`), `StopScript` (`ScriptEngine.cpp:248`) and `Script.prototype.send` (`JSScript.cpp:127`). There is no periodic trigger: `D2Handlers.cpp:110-113` is commented out. Whether the engine also invokes the callback on its own (for example for GC requests) can't be told from the headers. Once triggered, it runs at the engine's next interrupt check. **Event handlers can therefore pre-empt the main script at arbitrary interrupt points, not only inside `delay()`.** See [events.md](events.md) for dispatch details.
+   D2BS triggers the operation callback (`Script::TriggerOperationCallback`, `Script.h:171`, a no-op unless `hasActiveCX`) only from `FireEvent` (`Script.cpp:426`), `Pause`/`Resume`/`Stop` (`Script.cpp:220`, `Script.cpp:236`, `Script.cpp:266`), `RunCommand` (`Script.cpp:100`), `StopScript` (`ScriptEngine.cpp:248`) and `D2BSScript.prototype.send` (`JSScript.cpp:127`). There is no periodic trigger: `D2Handlers.cpp:110-113` is commented out. Whether the engine also invokes the callback on its own (for example for GC requests) can't be told from the headers. Once triggered, it runs at the engine's next interrupt check. **Event handlers can therefore pre-empt the main script at arbitrary interrupt points, not only inside `delay()`.** See [events.md](events.md) for dispatch details.
 3. **`setTimeout(fn, ms)` / `setInterval(fn, ms)`** (`JSCore.cpp:78`, `JSCore.cpp:98`) run these steps:
    1. `Script::RegisterEvent("setTimeout"|"setInterval", fn)`, which appends a GC-rooted copy of `fn` to the **same listener map that `addEventListener` uses** (`Script.cpp:352-359`).
    2. Build an `Event{owner=self, name="setTimeout"|"setInterval", arg3=new jsval(fn)}`.
@@ -582,7 +582,7 @@ Queues a `"scriptmsg"` event carrying deep copies of `values` to every running s
   - **Paused scripts are skipped**: `IsRunning()` is false while paused (`Script.cpp:340-342`), so the message is dropped, not queued.
   - Scripts that have no `scriptmsg` listener at broadcast time never see the message.
   - Non-cloneable values (functions, `Unit` and other host objects) make `write` fail (no custom clone callbacks exist). What the sender sees, and what the recipient's `read` of an empty buffer does, are open questions.
-  - The same `"scriptmsg"` path is used by `Script.prototype.send` (`JSScript.cpp:107`). See [utility-classes.md](utility-classes.md).
+  - The same `"scriptmsg"` path is used by `D2BSScript.prototype.send` (`JSScript.cpp:107`). See [utility-classes.md](utility-classes.md).
 
 ---
 
