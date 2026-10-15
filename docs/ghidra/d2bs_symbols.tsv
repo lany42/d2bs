@@ -1,0 +1,267 @@
+kind	module	name	rva	type	extra	status	comment	source
+FUNC	D2CLIENT	D2CLIENT_GetQuestInfo	0xB32D0	void* __stdcall D2CLIENT_GetQuestInfo(void)		ported-1.14d	Updated 1.14d //004B32D0-BASE	D2Ptrs.h:62
+FUNC	D2CLIENT	D2CLIENT_SubmitItem	0xB2370	void __fastcall D2CLIENT_SubmitItem(DWORD dwItemId)		ported-1.14d	Updated 1.14d //004B2370-BASE	D2Ptrs.h:64
+FUNC	D2CLIENT	D2CLIENT_Transmute	0x8A0D0	void __fastcall D2CLIENT_Transmute(void)		ported-1.14d	Updated 1.14d //0048A0D0-BASE	D2Ptrs.h:65
+FUNC	D2CLIENT	D2CLIENT_FindClientSideUnit	0x63990	UnitAny* __fastcall D2CLIENT_FindClientSideUnit(DWORD dwId, DWORD dwType)		ported-1.14d	Updated 1.14d //00463990-BASE	D2Ptrs.h:67
+FUNC	D2CLIENT	D2CLIENT_FindServerSideUnit	0x639B0	UnitAny* __fastcall D2CLIENT_FindServerSideUnit(DWORD dwId, DWORD dwType)		ported-1.14d	Updated 1.14d //004639B0-BASE	D2Ptrs.h:68
+FUNC	D2CLIENT	D2CLIENT_GetCurrentInteractingNPC	0xB1620	UnitAny* __fastcall D2CLIENT_GetCurrentInteractingNPC(void)		ported-1.14d	Updated 1.14d //004B1620-BASE	D2Ptrs.h:69
+FUNC	D2CLIENT	D2CLIENT_GetSelectedUnit	0x67A10	UnitAny* __stdcall D2CLIENT_GetSelectedUnit(void)		ported-1.14d	Updated 1.14d //00467A10-BASE	D2Ptrs.h:70
+FUNC	D2CLIENT	D2CLIENT_GetCursorItem	0x680A0	UnitAny* __fastcall D2CLIENT_GetCursorItem(void)		ported-1.14d	Updated 1.14d //004680A0-BASE	D2Ptrs.h:71
+FUNC	D2CLIENT	D2CLIENT_SetSelectedUnit_I	0x66DE0	void __fastcall D2CLIENT_SetSelectedUnit_I(UnitAny* pUnit)		ported-1.14d,asm-only	Updated 1.14d //00466DE0-BASE	D2Ptrs.h:73
+FUNC	D2CLIENT	D2CLIENT_GetItemName	0x8C060	BOOL __fastcall D2CLIENT_GetItemName(UnitAny* pItem, wchar_t* wBuffer, DWORD dwSize)		ported-1.14d	Updated 1.14d //0048C060-BASE	D2Ptrs.h:74
+FUNC	D2CLIENT	D2CLIENT_LoadItemDesc	0x8DD90	BOOL __stdcall D2CLIENT_LoadItemDesc(UnitAny* pItem, int type)		ported-1.14d	Updated 1.14d //0048DD90-BASE	D2Ptrs.h:75
+FUNC	D2CLIENT	D2CLIENT_GetMonsterOwner	0x79150	DWORD __fastcall D2CLIENT_GetMonsterOwner(DWORD nMonsterId)		ported-1.14d	Updated 1.14d //00479150-BASE	D2Ptrs.h:76
+FUNC	D2CLIENT	D2CLIENT_GetUnitHPPercent	0x79080	DWORD __fastcall D2CLIENT_GetUnitHPPercent(DWORD dwUnitId)		ported-1.14d	Updated 1.14d //00479080-BASE	D2Ptrs.h:77
+FUNC	D2CLIENT	D2CLIENT_InitInventory	0x845A0	void __fastcall D2CLIENT_InitInventory(void)		ported-1.14d	Updated 1.14d //004845A0-BASE	D2Ptrs.h:78
+FUNC	D2CLIENT	D2CLIENT_SetUIVar	0x55F20	DWORD __fastcall D2CLIENT_SetUIVar(DWORD varno, DWORD howset, DWORD unknown1)		ported-1.14d	Updated 1.14d //00455F20-BASE	D2Ptrs.h:79
+FUNC	D2CLIENT	D2CLIENT_GetUnitX	0x5ADF0	int __fastcall D2CLIENT_GetUnitX(UnitAny* pUnit)		ported-1.14d	Updated 1.14d //0045ADF0-BASE	D2Ptrs.h:80
+FUNC	D2CLIENT	D2CLIENT_GetUnitY	0x5AE20	int __fastcall D2CLIENT_GetUnitY(UnitAny* pUnit)		ported-1.14d	Updated 1.14d //0045AE20-BASE	D2Ptrs.h:81
+FUNC	D2CLIENT	D2CLIENT_ShopAction	0xB3870	void __fastcall D2CLIENT_ShopAction(UnitAny* pNpc, UnitAny* pItem, DWORD dwSell, DWORD unk, DWORD dwItemCost, DWORD dwMode, DWORD _2, DWORD _3)		ported-1.14d	Updated 1.14d //004B3870-BASE	D2Ptrs.h:83
+FUNC	D2CLIENT	D2CLIENT_CloseNPCInteract	0xB3F10	void __fastcall D2CLIENT_CloseNPCInteract(void)		ported-1.14d	Updated 1.14d //004B3F10-BASE	D2Ptrs.h:86
+FUNC	D2CLIENT	D2CLIENT_CloseInteract	0x4C6B0	void __fastcall D2CLIENT_CloseInteract(void)		ported-1.14d	Updated 1.14d //0044C6B0-BASE	D2Ptrs.h:87
+FUNC	D2CLIENT	D2CLIENT_GetAutomapSize	0x5A710	DWORD __stdcall D2CLIENT_GetAutomapSize(void)		ported-1.14d	Updated 1.14d //0045A710-BASE	D2Ptrs.h:89
+FUNC	D2CLIENT	D2CLIENT_NewAutomapCell	0x57C30	AutomapCell* __fastcall D2CLIENT_NewAutomapCell(void)		ported-1.14d	Updated 1.14d //00457C30-BASE	D2Ptrs.h:90
+FUNC	D2CLIENT	D2CLIENT_AddAutomapCell	0x57B00	void __fastcall D2CLIENT_AddAutomapCell(AutomapCell* aCell, AutomapCell** node)		ported-1.14d	Updated 1.14d //00457B00-BASE	D2Ptrs.h:91
+FUNC	D2CLIENT	D2CLIENT_RevealAutomapRoom	0x58F40	void __stdcall D2CLIENT_RevealAutomapRoom(Room1* pRoom1, DWORD dwClipFlag, AutomapLayer* aLayer)		ported-1.14d	Updated 1.14d //00458F40-BASE	D2Ptrs.h:92
+FUNC	D2CLIENT	D2CLIENT_InitAutomapLayer_I	0x58D40	AutomapLayer* __fastcall D2CLIENT_InitAutomapLayer_I(DWORD nLayerNo)		ported-1.14d,asm-only	Updated 1.14d //00458D40-BASE	D2Ptrs.h:93
+FUNC	D2CLIENT	D2CLIENT_ClickMap	0x62D00	void __fastcall D2CLIENT_ClickMap(DWORD MouseFlag, DWORD x, DWORD y, DWORD Type)		ported-1.14d	Updated 1.14d //00462D00-BASE	D2Ptrs.h:95
+FUNC	D2CLIENT	D2CLIENT_LeftClickItem_I	0x8FFE0	void __stdcall D2CLIENT_LeftClickItem_I(UnitAny* pPlayer, Inventory* pInventory, int x, int y, DWORD dwClickType, InventoryLayout* pLayout, DWORD Location)		ported-1.14d,asm-only	Updated 1.14d //0048FFE0-BASE	D2Ptrs.h:96
+FUNC	D2CLIENT	D2CLIENT_GetMouseXOffset	0x5AFC0	DWORD __fastcall D2CLIENT_GetMouseXOffset(void)		ported-1.14d,dead-code-only	Updated 1.14d //0045AFC0-BASE	D2Ptrs.h:100
+FUNC	D2CLIENT	D2CLIENT_GetMouseYOffset	0x5AFB0	DWORD __fastcall D2CLIENT_GetMouseYOffset(void)		ported-1.14d,dead-code-only	Updated 1.14d //0045AFB0-BASE	D2Ptrs.h:101
+FUNC	D2CLIENT	D2CLIENT_PrintGameString	0x9E3A0	void __fastcall D2CLIENT_PrintGameString(wchar_t* wMessage, int nColor)		ported-1.14d	Updated 1.14d //0049E3A0-BASE	D2Ptrs.h:103
+FUNC	D2CLIENT	D2CLIENT_PrintPartyString	0x9E5C0	void __fastcall D2CLIENT_PrintPartyString(wchar_t* wMessage, int nColor)		ported-1.14d,unused	Updated 1.14d //0049E5C0-BASE	D2Ptrs.h:104
+FUNC	D2CLIENT	D2CLIENT_LeaveParty	0x79FC0	void __fastcall D2CLIENT_LeaveParty(void)		ported-1.14d	Updated 1.14d //00479FC0-BASE	D2Ptrs.h:106
+FUNC	D2CLIENT	D2CLIENT_AcceptTrade	0xB9070	void __fastcall D2CLIENT_AcceptTrade(void)		ported-1.14d	Updated 1.14d //004B9070-BASE	D2Ptrs.h:108
+FUNC	D2CLIENT	D2CLIENT_CancelTrade	0xB90B0	void __fastcall D2CLIENT_CancelTrade(void)		ported-1.14d	Updated 1.14d //004B90B0-BASE	D2Ptrs.h:109
+FUNC	D2CLIENT	D2CLIENT_TradeOK	0xB8A30	void __stdcall D2CLIENT_TradeOK(void)		ported-1.14d	Updated 1.14d //004B8A30-BASE	D2Ptrs.h:110
+FUNC	D2CLIENT	D2CLIENT_GetDifficulty	0x4DCD0	BYTE __stdcall D2CLIENT_GetDifficulty(void)		ported-1.14d	Updated 1.14d //0044DCD0-BASE	D2Ptrs.h:112
+FUNC	D2CLIENT	D2CLIENT_ExitGame	0x4DD60	void __fastcall D2CLIENT_ExitGame(void)		ported-1.14d	Updated 1.14d //0044DD60-BASE	D2Ptrs.h:114
+FUNC	D2CLIENT	D2CLIENT_GetUiVar_I	0x538D0	DWORD __fastcall D2CLIENT_GetUiVar_I(DWORD dwVarNo)		ported-1.14d,asm-only	Updated 1.14d //004538D0-BASE	D2Ptrs.h:116
+FUNC	D2CLIENT	D2CLIENT_DrawRectFrame	0x52E50	void __fastcall D2CLIENT_DrawRectFrame(DWORD Rect)		ported-1.14d,asm-only	Updated 1.14d //00452E50-BASE	D2Ptrs.h:118
+FUNC	D2CLIENT	D2CLIENT_PerformGoldDialogAction	0x54080	void __fastcall D2CLIENT_PerformGoldDialogAction(void)		ported-1.14d	Updated 1.14d //00454080-BASE	D2Ptrs.h:120
+FUNC	D2CLIENT	D2CLIENT_GetPlayerUnit	0x63DD0	UnitAny* __stdcall D2CLIENT_GetPlayerUnit(void)		ported-1.14d	Updated 1.14d //00463DD0-BASE	D2Ptrs.h:122
+FUNC	D2CLIENT	D2CLIENT_ClearScreen	0xB4620	void __fastcall D2CLIENT_ClearScreen(void)		ported-1.14d	Updated 1.14d //004B4620-BASE	D2Ptrs.h:126
+FUNC	D2CLIENT	D2CLIENT_CloseNPCTalk	0xA17D0	DWORD __stdcall D2CLIENT_CloseNPCTalk(void* unk)		ported-1.14d	Updated 1.14d //004A17D0-BASE	D2Ptrs.h:128
+FUNC	D2CLIENT	D2CLIENT_TestPvpFlag	0xDC440	DWORD __fastcall D2CLIENT_TestPvpFlag(DWORD dwUnitId1, DWORD dwUnitId2, DWORD dwFlag)		ported-1.14d	Updated 1.14d //004DC440-BASE	D2Ptrs.h:130
+FUNC	D2CLIENT	D2CLIENT_GetGameLanguageCode	0x125150	DWORD __fastcall D2CLIENT_GetGameLanguageCode(void)		ported-1.14d	New 1.14d //00525150-BASE	D2Ptrs.h:132
+DATA	D2CLIENT	D2CLIENT_ScreenSizeX	0x31146C	DWORD		ported-1.14d	Updated 1.14d //0071146C-BASE	D2Ptrs.h:138
+DATA	D2CLIENT	D2CLIENT_ScreenSizeY	0x311470	DWORD		ported-1.14d	Updated 1.14d //00711470-BASE	D2Ptrs.h:139
+DATA	D2CLIENT	D2CLIENT_CursorHoverX	0x321E4C	DWORD		ported-1.14d	Updated 1.14d //00721E4C-BASE	D2Ptrs.h:141
+DATA	D2CLIENT	D2CLIENT_CursorHoverY	0x321E50	DWORD		ported-1.14d	Updated 1.14d //00721E50-BASE	D2Ptrs.h:142
+DATA	D2CLIENT	D2CLIENT_MouseY	0x3A6AAC	DWORD		ported-1.14d	Updated 1.14d //007A6AAC-BASE	D2Ptrs.h:144
+DATA	D2CLIENT	D2CLIENT_MouseX	0x3A6AB0	DWORD		ported-1.14d	Updated 1.14d //007A6AB0-BASE	D2Ptrs.h:145
+DATA	D2CLIENT	D2CLIENT_MouseOffsetY	0x3A5208	int		ported-1.14d,duplicate-address,unused	Updated 1.14d //007A5208-BASE	D2Ptrs.h:147
+DATA	D2CLIENT	D2CLIENT_MouseOffsetZ	0x3A5214	int		ported-1.14d,unused	Updated 1.14d //007A5214-BASE	D2Ptrs.h:148
+DATA	D2CLIENT	D2CLIENT_MouseOffsetX	0x3A520C	int		ported-1.14d,duplicate-address,unused	Updated 1.14d //007A520C-BASE	D2Ptrs.h:149
+DATA	D2CLIENT	D2CLIENT_AutomapOn	0x3A27E8	DWORD		ported-1.14d	Updated 1.14d //007A27E8-BASE	D2Ptrs.h:151
+DATA	D2CLIENT	D2CLIENT_AutomapMode	0x311254	int		ported-1.14d,duplicate-address	Updated 1.14d //00711254-BASE **Divisor**	D2Ptrs.h:152
+DATA	D2CLIENT	D2CLIENT_Offset	0x3A5198	POINT		ported-1.14d	Updated 1.14d //007A5198-BASE	D2Ptrs.h:153
+DATA	D2CLIENT	D2CLIENT_AutomapLayer	0x3A5164	AutomapLayer*		ported-1.14d	Updated 1.14d //007A5164-BASE	D2Ptrs.h:154
+DATA	D2CLIENT	D2CLIENT_MercReviveCost	0x3C0DD0	DWORD		ported-1.14d	Updated 1.14d //007C0DD0-BASE	D2Ptrs.h:157
+DATA	D2CLIENT	D2CLIENT_ServerSideUnitHashTables	0x3A5E70	UnitHashTable		ported-1.14d	Updated 1.14d //007A5E70-BASE	D2Ptrs.h:159
+DATA	D2CLIENT	D2CLIENT_ClientSideUnitHashTables	0x3A5270	UnitHashTable		ported-1.14d	Updated 1.14d //007A5270-BASE	D2Ptrs.h:160
+DATA	D2CLIENT	D2CLIENT_ViewportY	0x3A5208	int	alias_of=D2CLIENT_MouseOffsetY	ported-1.14d,duplicate-address	Updated 1.14d //007A5208-BASE **MouseOffsetY	D2Ptrs.h:162
+DATA	D2CLIENT	D2CLIENT_ViewportX	0x3A520C	int	alias_of=D2CLIENT_MouseOffsetX	ported-1.14d,duplicate-address	Updated 1.14d //007A520C-BASE **MouseOffsetX	D2Ptrs.h:163
+DATA	D2CLIENT	D2CLIENT_GoldDialogAction	0x3A279C	DWORD		ported-1.14d	Updated 1.14d //007A279C-BASE	D2Ptrs.h:165
+DATA	D2CLIENT	D2CLIENT_GoldDialogAmount	0x3A2A68	DWORD		ported-1.14d	Updated 1.14d //007A2A68-BASE	D2Ptrs.h:166
+DATA	D2CLIENT	D2CLIENT_NPCMenu	0x326C48	NPCMenu		ported-1.14d,type-from-usage	Updated 1.14d //00726C48-BASE	D2Ptrs.h:168
+DATA	D2CLIENT	D2CLIENT_NPCMenuAmount	0x325A74	DWORD		ported-1.14d	Updated 1.14d //00725A74-BASE	D2Ptrs.h:169
+DATA	D2CLIENT	D2CLIENT_TradeLayout	0x3BCA30	InventoryLayout		ported-1.14d,type-from-usage	Updated 1.14d //007BCA30-BASE	D2Ptrs.h:171
+DATA	D2CLIENT	D2CLIENT_StashLayout	0x3BCA78	InventoryLayout		ported-1.14d,type-from-usage	Updated 1.14d //007BCA78-BASE	D2Ptrs.h:172
+DATA	D2CLIENT	D2CLIENT_StoreLayout	0x3BCB58	InventoryLayout*		ported-1.14d,unused	Updated 1.14d //007BCB58-BASE	D2Ptrs.h:173
+DATA	D2CLIENT	D2CLIENT_CubeLayout	0x3BCB70	InventoryLayout		ported-1.14d,type-from-usage	Updated 1.14d //007BCB70-BASE	D2Ptrs.h:174
+DATA	D2CLIENT	D2CLIENT_InventoryLayout	0x3BCB88	InventoryLayout		ported-1.14d,type-from-usage	Updated 1.14d //007BCB88-BASE	D2Ptrs.h:175
+DATA	D2CLIENT	D2CLIENT_MercLayout	0x3BCD4C	InventoryLayout*		ported-1.14d,unused	Updated 1.14d //007BCD4C-BASE	D2Ptrs.h:176
+DATA	D2CLIENT	D2CLIENT_RegularCursorType	0x3A6AF0	DWORD		ported-1.14d	Updated 1.14d //007A6AF0-BASE	D2Ptrs.h:178
+DATA	D2CLIENT	D2CLIENT_ShopCursorType	0x3BCBF0	DWORD		ported-1.14d	Updated 1.14d //007BCBF0-BASE	D2Ptrs.h:179
+DATA	D2CLIENT	D2CLIENT_Ping	0x3A04A4	DWORD		ported-1.14d	Updated 1.14d //007A04A4-BASE	D2Ptrs.h:181
+DATA	D2CLIENT	D2CLIENT_Skip	0x3A04B0	DWORD		ported-1.14d,unused	Updated 1.14d //007A04B0-BASE	D2Ptrs.h:182
+DATA	D2CLIENT	D2CLIENT_FPS	0x3BB390	DWORD		ported-1.14d	Updated 1.14d //007BB390-BASE	D2Ptrs.h:183
+DATA	D2CLIENT	D2CLIENT_Lang	0x3BB5DC	DWORD		ported-1.14d	Updated 1.14d //007BB5DC-BASE	D2Ptrs.h:184
+DATA	D2CLIENT	D2CLIENT_Divisor	0x311254	int	alias_of=D2CLIENT_AutomapMode	ported-1.14d,duplicate-address	Updated 1.14d //00711254-BASE	D2Ptrs.h:185
+DATA	D2CLIENT	D2CLIENT_OverheadTrigger	0x3BF20E	DWORD		ported-1.14d	Updated 1.14d //007BF20E-BASE	D2Ptrs.h:187
+DATA	D2CLIENT	D2CLIENT_RecentInteractId	0x3C0D25	DWORD		ported-1.14d	Updated 1.14d //007C0D25-BASE	D2Ptrs.h:189
+DATA	D2CLIENT	D2CLIENT_ItemPriceList	0x3C0D43	DWORD		ported-1.14d	Updated 1.14d //007C0D43-BASE	D2Ptrs.h:191
+DATA	D2CLIENT	D2CLIENT_TransactionDialog	0x3C0D63	void*		ported-1.14d	Updated 1.14d //007C0D63-BASE	D2Ptrs.h:193
+DATA	D2CLIENT	D2CLIENT_TransactionDialogs	0x3C0E5C	DWORD		ported-1.14d	Updated 1.14d //007C0E5C-BASE	D2Ptrs.h:194
+DATA	D2CLIENT	D2CLIENT_TransactionDialogs_2	0x3C0E58	DWORD		ported-1.14d	Updated 1.14d //007C0E58-BASE	D2Ptrs.h:195
+DATA	D2CLIENT	D2CLIENT_pTransactionDialogsInfo	0x3C0E54	TransactionDialogsInfo_t*		ported-1.14d	Updated 1.14d //007C0E54-BASE	D2Ptrs.h:196
+DATA	D2CLIENT	D2CLIENT_GameInfo	0x3A0438	GameStructInfo*		ported-1.14d	Updated 1.14d //007A0438-BASE	D2Ptrs.h:198
+DATA	D2CLIENT	D2CLIENT_WaypointTable	0x3BF081	DWORD		ported-1.14d	Updated 1.14d //007BF081-BASE	D2Ptrs.h:200
+DATA	D2CLIENT	D2CLIENT_PlayerUnit	0x3A6A70	UnitAny*		ported-1.14d	Updated 1.14d //007A6A70-BASE	D2Ptrs.h:202
+DATA	D2CLIENT	D2CLIENT_SelectedInvItem	0x3BCBF4	UnitAny*		ported-1.14d,duplicate-address	Updated 1.14d //007BCBF4-BASE	D2Ptrs.h:203
+DATA	D2CLIENT	D2CLIENT_PlayerUnitList	0x3BB5C0	RosterUnit*		ported-1.14d	Updated 1.14d //007BB5C0-BASE	D2Ptrs.h:205
+DATA	D2CLIENT	D2CLIENT_bWeapSwitch	0x3BCC4C	DWORD		ported-1.14d	Updated 1.14d //007BCC4C-BASE	D2Ptrs.h:207
+DATA	D2CLIENT	D2CLIENT_bTradeAccepted	0x3BCE18	DWORD		ported-1.14d	Updated 1.14d //007BCE18-BASE	D2Ptrs.h:209
+DATA	D2CLIENT	D2CLIENT_bTradeBlock	0x3BCE28	DWORD		ported-1.14d	Updated 1.14d //007BCE28-BASE	D2Ptrs.h:210
+DATA	D2CLIENT	D2CLIENT_RecentTradeId	0x3C0E7C	DWORD		ported-1.14d	Updated 1.14d //007C0E7C-BASE	D2Ptrs.h:213
+DATA	D2CLIENT	D2CLIENT_ExpCharFlag	0x3A04F4	DWORD		ported-1.14d	Updated 1.14d //007A04F4-BASE	D2Ptrs.h:215
+DATA	D2CLIENT	D2CLIENT_MapId	0x3A0638	DWORD		ported-1.14d	Updated 1.14d //007A0638-BASE // unused but I want to add it	D2Ptrs.h:217
+DATA	D2CLIENT	D2CLIENT_AlwaysRun	0x3A0660	DWORD		ported-1.14d	Updated 1.14d //007A0660-BASE	D2Ptrs.h:219
+DATA	D2CLIENT	D2CLIENT_NoPickUp	0x3A6A90	DWORD		ported-1.14d	Updated 1.14d //007A6A90-BASE // unused but I want to add it	D2Ptrs.h:220
+DATA	D2CLIENT	D2CLIENT_ChatMsg	0x3BB638	wchar_t		ported-1.14d,type-from-usage	Updated 1.14d //007BB638-BASE	D2Ptrs.h:224
+DATA	D2CLIENT	D2CLIENT_OrificeId	0x3C547C	DWORD		ported-1.14d	Updated 1.14d //007C547C-BASE	D2Ptrs.h:225
+DATA	D2CLIENT	D2CLIENT_CursorItemMode	0x3C5474	DWORD		ported-1.14d	Updated 1.14d //007C5474-BASE	D2Ptrs.h:226
+LABEL	D2CLIENT	D2CLIENT_TakeWaypoint_I	0x9D0F1			ported-1.14d	Updated 1.14d //0049D0F1-BASE	D2Ptrs.h:232
+LABEL	D2CLIENT	D2CLIENT_ClickShopItem_I	0xB2653			ported-1.14d,unused	Updated 1.14d //004B2653-BASE	D2Ptrs.h:234
+LABEL	D2CLIENT	D2CLIENT_ClickBelt_I	0x98870			ported-1.14d	Updated 1.14d //00498870-BASE	D2Ptrs.h:235
+LABEL	D2CLIENT	D2CLIENT_ClickBeltRight_I	0x98A90			ported-1.14d	Updated 1.14d //00498A90-BASE	D2Ptrs.h:236
+LABEL	D2CLIENT	D2CLIENT_ClickItemRight_I	0x87740			ported-1.14d	Updated 1.14d //00487740-BASE	D2Ptrs.h:237
+LABEL	D2CLIENT	D2CLIENT_MercItemAction_I	0x785B0			ported-1.14d	Updated 1.14d //004785B0-BASE	D2Ptrs.h:238
+LABEL	D2CLIENT	D2CLIENT_Interact_I	0x2B2E0			stale-pre-1.14d?,dead-code-only	6FADB2E0	D2Ptrs.h:240
+LABEL	D2CLIENT	D2CLIENT_ClickParty_I	0x79EB0			ported-1.14d	Updated 1.14d //00479EB0-BASE	D2Ptrs.h:242
+LABEL	D2CLIENT	D2CLIENT_ClickParty_II	0x9B990			ported-1.14d	Updated 1.14d //0049B990-BASE	D2Ptrs.h:243
+LABEL	D2CLIENT	D2CLIENT_ShopAction_I	0x7D030			stale-pre-1.14d?,unused	6FB2D030 **ShopAction**	D2Ptrs.h:245
+LABEL	D2CLIENT	D2CLIENT_GetUnitName_I	0x64A60			ported-1.14d	Updated 1.14d //00464A60-BASE	D2Ptrs.h:247
+LABEL	D2CLIENT	D2CLIENT_GetItemDesc_I	0x2E380			stale-pre-1.14d?,unused	6FADE380	D2Ptrs.h:248
+LABEL	D2CLIENT	D2CLIENT_AssignPlayer_I	0x66200			ported-1.14d	Updated 1.14d //00466200-BASE	D2Ptrs.h:250
+LABEL	D2CLIENT	D2CLIENT_InputCall_I	0x787B0			ported-1.14d	Updated 1.14d //004787B0-BASE	D2Ptrs.h:254
+LABEL	D2CLIENT	D2CLIENT_Say_I	0x7CBDA			ported-1.14d	Updated 1.14d //0047CBDA-BASE	D2Ptrs.h:256
+DATA	D2CLIENT	D2CLIENT_BodyClickTable	0x321E58			ported-1.14d	Updated 1.14d //00721E58-BASE	D2Ptrs.h:258
+LABEL	D2CLIENT	D2CLIENT_LoadUIImage_I	0x788B0			ported-1.14d,unused	Updated 1.14d //004788B0-BASE /// switch to d2win LoadCellFile //	D2Ptrs.h:260
+LABEL	D2CLIENT	D2CLIENT_GetMinionCount_I	0x78EE0			ported-1.14d	Updated 1.14d //00478EE0-BASE	D2Ptrs.h:262
+LABEL	D2CLIENT	D2CLIENT_GameLeave_I	0x81830			ported-1.14d	Updated 1.14d //00481830-BASE	D2Ptrs.h:264
+LABEL	D2CLIENT	D2CLIENT_CongratsScreen_I	0xF6190			ported-1.14d	Updated 1.14d //004F6190-BASE	D2Ptrs.h:266
+LABEL	D2CLIENT	D2CLIENT_GameAddUnit_I	0x628E0			stale-pre-1.14d?,unused	6FB128E0	D2Ptrs.h:273
+LABEL	D2CLIENT	D2CLIENT_SendGamePacket_I	0x78350			ported-1.14d	Updated 1.14d //00478350-BASE //SendPacket_I	D2Ptrs.h:283
+LABEL	D2CLIENT	D2CLIENT_SendPacket_II	0x12AE62			ported-1.14d	Updated **NEW** 1.14d //0052AE62-BASE	D2Ptrs.h:284
+FUNC	D2COMMON	D2COMMON_InitLevel	0x2424A0	void __stdcall D2COMMON_InitLevel(Level* pLevel)		ported-1.14d	Updated 1.14d //006424A0-BASE	D2Ptrs.h:290
+FUNC	D2COMMON	D2COMMON_UnloadAct	0x21AFD3	unsigned int __stdcall D2COMMON_UnloadAct(Act* pAct)		ported-1.14d,unused	Updated 1.14d //0061AFD3-BASE	D2Ptrs.h:291
+FUNC	D2COMMON	D2COMMON_GetObjectTxt	0x240E90	ObjectTxt* __stdcall D2COMMON_GetObjectTxt(DWORD objno)		ported-1.14d,duplicate-address,unused	Updated 1.14d //00640E90-BASE	D2Ptrs.h:292
+FUNC	D2COMMON	D2COMMON_LoadAct	0x2194A0	Act* __stdcall D2COMMON_LoadAct(DWORD ActNumber, DWORD MapId, DWORD Unk, DWORD Unk_2, DWORD Unk_3, DWORD Unk_4, DWORD TownLevelId, DWORD Func_1, DWORD Func_2)		ported-1.14d,unused	Updated 1.14d //006194A0-BASE	D2Ptrs.h:293
+FUNC	D2COMMON	D2COMMON_GetLevelText	0x21DB70	LevelTxt* __stdcall D2COMMON_GetLevelText(DWORD levelno)		ported-1.14d	Updated 1.14d //0061DB70-BASE	D2Ptrs.h:297
+FUNC	D2COMMON	D2COMMON_GetObjectText	0x240E90	ObjectTxt* __stdcall D2COMMON_GetObjectText(DWORD objno)	alias_of=D2COMMON_GetObjectTxt	ported-1.14d,duplicate-address	Updated 1.14d //00640E90-BASE	D2Ptrs.h:298
+FUNC	D2COMMON	D2COMMON_GetItemText	0x2335F0	ItemTxt* __stdcall D2COMMON_GetItemText(DWORD itemno)		ported-1.14d	Updated 1.14d //006335F0-BASE	D2Ptrs.h:299
+FUNC	D2COMMON	D2COMMON_GetLayer	0x21E470	AutomapLayer2* __fastcall D2COMMON_GetLayer(DWORD dwLevelNo)		ported-1.14d	Updated 1.14d //0061E470-BASE	D2Ptrs.h:301
+FUNC	D2COMMON	D2COMMON_GetLevel	0x242AE0	Level* __fastcall D2COMMON_GetLevel(ActMisc* pMisc, DWORD dwLevelNo)		ported-1.14d,unused	Updated 1.14d //00642AE0-BASE	D2Ptrs.h:302
+FUNC	D2COMMON	D2COMMON_GetStatList	0x2257D0	StatList* __stdcall D2COMMON_GetStatList(UnitAny* pUnit, DWORD dwUnk, DWORD dwMaxEntries)		ported-1.14d	Updated 1.14d //006257D0-BASE	D2Ptrs.h:304
+FUNC	D2COMMON	D2COMMON_CopyStatList	0x225C90	DWORD __stdcall D2COMMON_CopyStatList(StatList* pStatList, Stat* pStatArray, DWORD dwMaxEntries)		ported-1.14d	Updated 1.14d //0625C90-BASE	D2Ptrs.h:305
+FUNC	D2COMMON	D2COMMON_GetUnitStat	0x225480	DWORD __stdcall D2COMMON_GetUnitStat(UnitAny* pUnit, DWORD dwStat, DWORD dwStat2)		ported-1.14d	Updated 1.14d //00625480-BASE	D2Ptrs.h:306
+FUNC	D2COMMON	D2COMMON_GetUnitState	0x239DF0	int __stdcall D2COMMON_GetUnitState(UnitAny* pUnit, DWORD dwStateNo)		ported-1.14d	Updated 1.14d //00639DF0-BASE	D2Ptrs.h:307
+FUNC	D2COMMON	D2COMMON_CheckUnitCollision	0x222AA0	DWORD __stdcall D2COMMON_CheckUnitCollision(UnitAny* pUnitA, UnitAny* pUnitB, DWORD dwBitMask)		ported-1.14d	Updated 1.14d //00622AA0-BASE	D2Ptrs.h:309
+FUNC	D2COMMON	D2COMMON_GetRoomFromUnit	0x220BB0	Room1* __stdcall D2COMMON_GetRoomFromUnit(UnitAny* ptUnit)		ported-1.14d	Updated 1.14d //00620BB0-BASE	D2Ptrs.h:310
+FUNC	D2COMMON	D2COMMON_GetTargetUnitType	0x773C0	Path* __stdcall D2COMMON_GetTargetUnitType(Path* pPath)		stale-pre-1.14d?,unused		D2Ptrs.h:311
+FUNC	D2COMMON	D2COMMON_GetSkillLevel	0x2442A0	int __stdcall D2COMMON_GetSkillLevel(UnitAny* pUnit, Skill* pSkill, BOOL bTotal)		ported-1.14d	Updated 1.14d //006442A0-BASE	D2Ptrs.h:313
+FUNC	D2COMMON	D2COMMON_GetItemLevelRequirement	0x22BA60	DWORD __stdcall D2COMMON_GetItemLevelRequirement(UnitAny* pItem, UnitAny* pPlayer)		ported-1.14d	Updated 1.14d //0062BA60-BASE	D2Ptrs.h:315
+FUNC	D2COMMON	D2COMMON_GetItemPrice	0x22FDC0	DWORD __stdcall D2COMMON_GetItemPrice(UnitAny* MyUnit, UnitAny* pItem, DWORD U1_, DWORD U2_, DWORD U3_, DWORD U4_)		ported-1.14d	Updated 1.14d //0062FDC0-BASE	D2Ptrs.h:317
+FUNC	D2COMMON	D2COMMON_GetRepairCost	0x22FE60	DWORD __stdcall D2COMMON_GetRepairCost(DWORD _1, UnitAny* pUnit, DWORD dwNpcId, DWORD dwDifficulty, DWORD dwItemPriceList, DWORD _2)		ported-1.14d	Updated 1.14d //0062FE60-BASE	D2Ptrs.h:319
+FUNC	D2COMMON	D2COMMON_GetItemMagicalMods	0x233EE0	char* __stdcall D2COMMON_GetItemMagicalMods(WORD wPrefixNum)		ported-1.14d	Updated 1.14d //00633EE0-BASE	D2Ptrs.h:321
+FUNC	D2COMMON	D2COMMON_GetItemFromInventory	0x23B2C0	UnitAny* __stdcall D2COMMON_GetItemFromInventory(Inventory* inv)		ported-1.14d	Updated 1.14d //0063B2C0-BASE	D2Ptrs.h:322
+FUNC	D2COMMON	D2COMMON_GetNextItemFromInventory	0x23DFA0	UnitAny* __stdcall D2COMMON_GetNextItemFromInventory(UnitAny* pItem)		ported-1.14d	Updated 1.14d //0063DFA0-BASE	D2Ptrs.h:323
+FUNC	D2COMMON	D2COMMON_GenerateOverheadMsg	0x261110	OverheadMsg* __stdcall D2COMMON_GenerateOverheadMsg(DWORD dwUnk, char* szMsg, DWORD dwTrigger)		ported-1.14d	Updated 1.14d //00661110-BASE	D2Ptrs.h:325
+FUNC	D2COMMON	D2COMMON_FixOverheadMsg	0x261230	void __stdcall D2COMMON_FixOverheadMsg(OverheadMsg* pMsg, DWORD dwUnk)		ported-1.14d,unused	Updated 1.14d //00661230-BASE	D2Ptrs.h:326
+FUNC	D2COMMON	D2COMMON_AddRoomData	0x21A070	void __stdcall D2COMMON_AddRoomData(Act* ptAct, int LevelId, int Xpos, int Ypos, Room1* pRoom)		ported-1.14d	Updated 1.14d //0061A070-BASE	D2Ptrs.h:328
+FUNC	D2COMMON	D2COMMON_RemoveRoomData	0x21A0C0	void __stdcall D2COMMON_RemoveRoomData(Act* ptAct, int LevelId, int Xpos, int Ypos, Room1* pRoom)		ported-1.14d	Updated 1.14d //0061A0C0-BASE	D2Ptrs.h:329
+FUNC	D2COMMON	D2COMMON_GetQuestFlag	0x25C310	int __stdcall D2COMMON_GetQuestFlag(void* QuestInfo, DWORD dwAct, DWORD dwQuest)		ported-1.14d	Updated 1.14d //0065C310-BASE	D2Ptrs.h:331
+FUNC	D2COMMON	D2COMMON_MapToAbsScreen	0x243260	void __stdcall D2COMMON_MapToAbsScreen(long* pX, long* pY)		ported-1.14d	Updated 1.14d //00643260-BASE	D2Ptrs.h:333
+FUNC	D2COMMON	D2COMMON_AbsScreenToMap	0x243510	void __stdcall D2COMMON_AbsScreenToMap(long* ptMouseX, long* ptMouseY)		ported-1.14d	Updated 1.14d //00643510-BASE	D2Ptrs.h:334
+FUNC	D2COMMON	D2COMMON_CheckWaypoint	0x260E50	DWORD __stdcall D2COMMON_CheckWaypoint(DWORD WaypointTable, DWORD dwLevelId)		ported-1.14d	Updated 1.14d //00660E50-BASE	D2Ptrs.h:336
+FUNC	D2COMMON	D2COMMON_IsTownByLevelNo	0x21AAF0	BOOL __stdcall D2COMMON_IsTownByLevelNo(DWORD dwLevelNo)		ported-1.14d	Updated 1.14d //0061AAF0-BASE	D2Ptrs.h:338
+FUNC	D2COMMON	D2COMMON_GetLevelNoFromRoom	0x21A1B0	BOOL __stdcall D2COMMON_GetLevelNoFromRoom(Room1* pRoom1)		ported-1.14d,duplicate-address	Updated 1.14d //0061A1B0-BASE	D2Ptrs.h:339
+FUNC	D2COMMON	D2COMMON_FindRoom1	0x219DA3	Room1* __stdcall D2COMMON_FindRoom1(Act* pAct, int x, int y)		ported-1.14d,unused	Updated 1.14d //00619DA3-BASE	D2Ptrs.h:340
+FUNC	D2COMMON	D2COMMON_GetItemPalette	0x22C100	int __stdcall D2COMMON_GetItemPalette(UnitAny* pPlayer, UnitAny* pItem, BYTE* pColor, int nTransType)		ported-1.14d,unused	Updated 1.14d //0062C100-BASE	D2Ptrs.h:341
+FUNC	D2COMMON	D2COMMON_GetMissileOwnerUnit	0x639D0	UnitAny* __fastcall D2COMMON_GetMissileOwnerUnit(UnitAny* pMissile)		va-only	0x4639D0-BASE	D2Ptrs.h:344
+DATA	D2COMMON	D2COMMON_sgptDataTable	0x344304	DWORD		ported-1.14d	Updated 1.14d //00744304-BASE	D2Ptrs.h:349
+LABEL	D2COMMON	D2COMMON_DisplayOverheadMsg_I	0x2611A0			ported-1.14d,unused	Updated 1.14d //006611A0-BASE	D2Ptrs.h:355
+LABEL	D2COMMON	D2COMMON_GetLevelIdFromRoom_I	0x21A1B0		alias_of=D2COMMON_GetLevelNoFromRoom	ported-1.14d,duplicate-address,unused	Updated 1.14d //0061A1B0-BASE	D2Ptrs.h:356
+FUNC	D2NET	D2NET_SendPacket	0x12AE50	void __stdcall D2NET_SendPacket(size_t aLen, DWORD arg1, BYTE* aPacket)		ported-1.14d	Updated 1.14d //0052AE50-BASE	D2Ptrs.h:362
+FUNC	D2NET	D2NET_ReceivePacket	0x12AEB0	void __fastcall D2NET_ReceivePacket(BYTE* aPacket, DWORD aLen)		ported-1.14d	Updated 1.14d //0052AEB0-BASE	D2Ptrs.h:363
+FUNC	D2NET	D2NET_ReceivePacket_I	0x12B920	void __fastcall D2NET_ReceivePacket_I(BYTE* aPacket, DWORD aLen, int* arg3)		ported-1.14d,asm-only	Updated 1.14d //0052B920-BASE	D2Ptrs.h:364
+DATA	D2NET	D2NET_CriticalPacketSection	0xB400	CRITICAL_SECTION		stale-pre-1.14d?,unused	unused but we need to use it	D2Ptrs.h:370
+FUNC	D2GFX	D2GFX_DrawRectangle	0xF6300	void __stdcall D2GFX_DrawRectangle(int X1, int Y1, int X2, int Y2, DWORD dwColor, DWORD dwTrans)		ported-1.14d	Updated 1.14d //004F6300-BASE	D2Ptrs.h:378
+FUNC	D2GFX	D2GFX_DrawLine	0xF6380	void __stdcall D2GFX_DrawLine(int X1, int Y1, int X2, int Y2, DWORD dwColor, DWORD dwUnk)		ported-1.14d	Updated 1.14d //004F6380-BASE	D2Ptrs.h:379
+FUNC	D2GFX	D2GFX_DrawAutomapCell2	0xF6480	void __stdcall D2GFX_DrawAutomapCell2(CellContext* context, DWORD xpos, DWORD ypos, DWORD bright2, DWORD bright, BYTE* coltab)		ported-1.14d	Updated 1.14d //004F6480-BASE	D2Ptrs.h:380
+FUNC	D2GFX	D2GFX_GetHwnd	0xF59A0	HWND __stdcall D2GFX_GetHwnd(void)		ported-1.14d	Updated 1.14d //004F59A0-BASE	D2Ptrs.h:382
+FUNC	D2GFX	D2GFX_GetScreenSize	0xF5160	DWORD __stdcall D2GFX_GetScreenSize(void)		ported-1.14d	Updated 1.14d //004F5160-BASE	D2Ptrs.h:383
+FUNC	D2MULTI	D2MULTI_DoChat	0x42810	void __fastcall D2MULTI_DoChat(void)		ported-1.14d	Updated 1.14d //00442810-BASE	D2Ptrs.h:389
+FUNC	D2MULTI	D2MULTI_PrintChannelText_	0x47AB0	void __fastcall D2MULTI_PrintChannelText_(int unused, char* szText, DWORD dwColor)		ported-1.14d,unused	Updated 1.14d //00447AB0-BASE	D2Ptrs.h:390
+DATA	D2MULTI	D2MULTI_ChatBoxMsg	0x37AE40	char		ported-1.14d,type-from-usage	Updated 1.14d //0077AE40-BASE	D2Ptrs.h:396
+DATA	D2MULTI	D2MULTI_GameListControl	0x398BC0	Control*		ported-1.14d,unused	Updated 1.14d //00798BC0-BASE	D2Ptrs.h:397
+LABEL	D2MULTI	D2MULTI_ChannelChat_I	0x14BE6			stale-pre-1.14d?,unused		D2Ptrs.h:403
+LABEL	D2MULTI	D2MULTI_ChannelEmote_I	0x14856			stale-pre-1.14d?,unused		D2Ptrs.h:403
+LABEL	D2MULTI	D2MULTI_ChannelWhisper_I	0x142F0			stale-pre-1.14d?,unused		D2Ptrs.h:403
+LABEL	D2MULTI	D2MULTI_ChannelInput_I	0x428D0			ported-1.14d	Updated 1.14d //004428D0-BASE	D2Ptrs.h:404
+FUNC	D2CMP	D2CMP_InitCellFile	0x201340	void __stdcall D2CMP_InitCellFile(LPVOID File, CellFile** Out, LPSTR SourceFile, DWORD Line, DWORD FileVersion, LPSTR Filename)		ported-1.14d	Updated 1.14d //00601340-BASE	D2Ptrs.h:410
+FUNC	D2CMP	D2CMP_DeleteCellFile	0x201A50	void __stdcall D2CMP_DeleteCellFile(CellFile* File)		ported-1.14d,unused	Updated 1.14d //00601A50-BASE	D2Ptrs.h:412
+FUNC	D2LANG	D2LANG_GetLocaleText	0x124A30	wchar_t* __fastcall D2LANG_GetLocaleText(WORD nLocaleTxtNo)		ported-1.14d	Updated 1.14d //00524A30-BASE	D2Ptrs.h:418
+LABEL	D2LANG	D2LANG_Say_II	0x126800			ported-1.14d,unused	Updated 1.14d //00526800-BASE	D2Ptrs.h:424
+DATA	D2LAUNCH	D2LAUNCH_BnData	0x3795D4	BnetData*		ported-1.14d	Updated 1.14d //007795D4-BASE	D2Ptrs.h:430
+FUNC	D2WIN	D2WIN_SetControlText	0xFF5A0	void* __fastcall D2WIN_SetControlText(Control* box, const wchar_t* txt)		ported-1.14d	Updated 1.14d //004FF5A0-BASE	D2Ptrs.h:436
+FUNC	D2WIN	D2WIN_DrawSprites	0xF9870	void __fastcall D2WIN_DrawSprites(void)		ported-1.14d	Updated 1.14d //004F9870-BASE	D2Ptrs.h:437
+FUNC	D2WIN	D2WIN_LoadCellFile	0xFA9B0	CellFile* __fastcall D2WIN_LoadCellFile(const char* szFile, int Type)		ported-1.14d	Updated 1.14d //004FA9B0-BASE	D2Ptrs.h:438
+FUNC	D2WIN	D2WIN_TakeScreenshot	0xFA7A0	void __fastcall D2WIN_TakeScreenshot(void)		ported-1.14d	Updated 1.14d //004FA7A0-BASE	D2Ptrs.h:444
+FUNC	D2WIN	D2WIN_DrawText	0x102320	void __fastcall D2WIN_DrawText(const wchar_t* wStr, int xPos, int yPos, DWORD dwColor, DWORD dwUnk)		ported-1.14d	Updated 1.14d //00502320-BASE	D2Ptrs.h:445
+FUNC	D2WIN	D2WIN_GetTextSize	0x102520	DWORD __fastcall D2WIN_GetTextSize(wchar_t* wStr, DWORD* dwWidth, DWORD* dwFileNo)		ported-1.14d,duplicate-address	Updated 1.14d //00502520-BASE	D2Ptrs.h:446
+FUNC	D2WIN	D2WIN_SetTextSize	0x102EF0	DWORD __fastcall D2WIN_SetTextSize(DWORD dwSize)		ported-1.14d	Updated 1.14d //00502EF0-BASE	D2Ptrs.h:447
+FUNC	D2WIN	D2WIN_GetTextWidthFileNo	0x102520	DWORD __fastcall D2WIN_GetTextWidthFileNo(wchar_t* wStr, DWORD* dwWidth, DWORD* dwFileNo)	alias_of=D2WIN_GetTextSize	ported-1.14d,duplicate-address,unused	Updated 1.14d //00502520-BASE	D2Ptrs.h:448
+FUNC	D2WIN	D2WIN_DestroyEditBox	0xFDAA0	DWORD __fastcall D2WIN_DestroyEditBox(Control* box)		ported-1.14d,unused	Updated 1.14d //004FDAA0-BASE	D2Ptrs.h:449
+FUNC	D2WIN	D2WIN_DestroyControl	0xF95C0	void __stdcall D2WIN_DestroyControl(Control* pControl)		ported-1.14d,unused	Updated 1.14d // 004f95c0-BASE	D2Ptrs.h:450
+FUNC	D2WIN	D2WIN_SetEditBoxCallback	0xFDAD0	void __fastcall D2WIN_SetEditBoxCallback(Control* pControl, BOOL (__stdcall* FunCallBack)(Control* pControl, DWORD dwInputType, char* pChar))		ported-1.14d,duplicate-address,unused	Updated 1.14d //004FDAD0-BASE	D2Ptrs.h:451
+FUNC	D2WIN	D2WIN_SetEditBoxProc	0xFDAD0	void __fastcall D2WIN_SetEditBoxProc(Control* box, BOOL (__stdcall* FunCallBack)(Control*, DWORD, DWORD))	alias_of=D2WIN_SetEditBoxCallback	ported-1.14d,duplicate-address,unused	Updated 1.14d //004FDAD0-BASE	D2Ptrs.h:453
+FUNC	D2WIN	D2WIN_SelectEditBoxText	0xFDD00	void __fastcall D2WIN_SelectEditBoxText(Control* box)		ported-1.14d,unused	Updated 1.14d //004fdd00-BASE	D2Ptrs.h:455
+FUNC	D2WIN	D2WIN_InitMPQ	0x117332	DWORD __fastcall D2WIN_InitMPQ(const char* mpqfile, char* mpqname, int v4, int v5)		ported-1.14d	Updated 1.14d //00517332-BASE	D2Ptrs.h:456
+DATA	D2WIN	D2WIN_FirstControl	0x3D55BC	Control*		ported-1.14d	Updated 1.14d //007D55BC-BASE	D2Ptrs.h:462
+DATA	D2WIN	D2WIN_FocusedControl	0x3D55CC	Control*		ported-1.14d,unused	Updated 1.14d //007D55CC-BASE unused, but we ought to use it	D2Ptrs.h:463
+DATA	D2MULTI	D2MULTI_ChatInputBox	0x398C80	DWORD*		ported-1.14d,unused	Updated 1.14d //00798C80-BASE	D2Ptrs.h:464
+LABEL	BNCLIENT	BNCLIENT_DClass	0x123673			ported-1.14d	Updated 1.14d //00523673-BASE	D2Ptrs.h:466
+LABEL	BNCLIENT	BNCLIENT_DLod	0x12395D			ported-1.14d	Updated 1.14d //0052395D-BASE	D2Ptrs.h:467
+DATA	BNCLIENT	BNCLIENT_ClassicKey	0x482744	char*		ported-1.14d	Updated 1.14d //00882744-BASE	D2Ptrs.h:469
+DATA	BNCLIENT	BNCLIENT_XPacKey	0x48274C	char*		ported-1.14d	Updated 1.14d //0088274C-BASE	D2Ptrs.h:470
+DATA	BNCLIENT	BNCLIENT_KeyOwner	0x482750	char*		ported-1.14d	Updated 1.14d //00882750-BASE	D2Ptrs.h:471
+FUNC	BNCLIENT	BNCLIENT_DecodeAndLoadKeys	0x1234D0	char __cdecl BNCLIENT_DecodeAndLoadKeys(void)		ported-1.14d,unused	Updated 1.14d //005234D0-BASE	D2Ptrs.h:472
+DATA	STORM	STORM_WindowHandlers	0x379300	WindowHandlerHashTable		ported-1.14d	Updated 1.14d //00779300-BASE	D2Ptrs.h:473
+FUNC	D2GAME	D2GAME_Rand	0x5C370	DWORD __fastcall D2GAME_Rand(DWORD* seed)		ported-1.14d	Updated 1.14d //0045C370-BASE	D2Ptrs.h:479
+FUNC	D2GAME	D2GAME_exit0	0x576F	DWORD __fastcall D2GAME_exit0(void)		ported-1.14d,captured-encoded	NEW 1.14d //0040576F-BASE	D2Ptrs.h:481
+PATCH	D2CLIENT	D2BS_PATCH_GameInput_Intercept	0x7C89D	CALL	len=5;target=GameInput_Intercept	ported-1.14d	Updated 1.14d //0047C89D-BASE	Patch.h:9
+PATCH	D2CLIENT	D2BS_PATCH_GameDraw_Intercept	0x53B30	JMP	len=5;target=GameDraw_Intercept	ported-1.14d	Updated 1.14d //00453B30-BASE	Patch.h:10
+PATCH	D2CLIENT	D2BS_PATCH_GamePacketReceived_Intercept	0x5F802	CALL	len=5;target=GamePacketReceived_Intercept	ported-1.14d	Updated 1.14d //0045F802-BASE	Patch.h:11
+PATCH	D2CLIENT	D2BS_PATCH_GamePacketSent_Interception	0x12AE5A	JMP	len=5;target=GamePacketSent_Interception	ported-1.14d	Updated 1.14d //0052AE5A-BASE	Patch.h:12
+PATCH	D2CLIENT	D2BS_PATCH_GetSelectedUnit_Intercept	0x62D72	CALL	len=5;target=GetSelectedUnit_Intercept	ported-1.14d	Updated 1.14d //00462D72-BASE	Patch.h:13
+PATCH	D2CLIENT	D2BS_PATCH_PlayerAssignment_Intercept	0x5E4D5	JMP	len=5;target=PlayerAssignment_Intercept	ported-1.14d	Updated 1.14d //0045E4D5-BASE	Patch.h:14
+PATCH	D2CLIENT	D2BS_PATCH_BYTES_C3	0x68770	BYTES	len=1;target=0xC3	ported-1.14d	Updated 1.14d //00468770-BASE	Patch.h:15
+PATCH	D2CLIENT	D2BS_PATCH_BYTES_75	0x4EBFB	BYTES	len=1;target=0x75	va-only	Congrats Screen //0044EBFB-BASE	Patch.h:16
+PATCH	D2CLIENT	D2BS_PATCH_CongratsScreen_Intercept	0x4EBEF	CALL	len=5;target=CongratsScreen_Intercept	ported-1.14d	Updated 1.14d //0044EBEF-BASE	Patch.h:17
+PATCH	D2CLIENT	D2BS_PATCH_GameActChange_Intercept	0x547B6	CALL	len=5;target=GameActChange_Intercept	ported-1.14d	Updated 1.14d //004547B6-BASE	Patch.h:18
+PATCH	D2CLIENT	D2BS_PATCH_GameActChange2_Intercept	0x567EB	JMP	len=5;target=GameActChange2_Intercept	ported-1.14d	Updated 1.14d //004567EB-BASE	Patch.h:19
+PATCH	D2CLIENT	D2BS_PATCH_GameLeave_Intercept	0x4F57C	CALL	len=5;target=GameLeave_Intercept	ported-1.14d	Updated 1.14d //0044F57C-BASE	Patch.h:20
+PATCH	D2CLIENT	D2BS_PATCH_GameAttack_Intercept	0x61704	CALL	len=5;target=GameAttack_Intercept	ported-1.14d	Updated 1.14d //00461704-BASE	Patch.h:21
+PATCH	BNCLIENT	D2BS_PATCH_ChatPacketRecv_Interception	0x121B20	CALL	len=7;target=ChatPacketRecv_Interception	ported-1.14d	Updated 1.14d //00521B20-BASE	Patch.h:26
+PATCH	D2MULTI	D2BS_PATCH_Whisper_Intercept	0x48813	CALL	len=7;target=Whisper_Intercept	ported-1.14d	Updated 1.14d //00448813-BASE	Patch.h:28
+PATCH	D2MULTI	D2BS_PATCH_ChannelInput_Intercept	0x42A61	CALL	len=5;target=ChannelInput_Intercept	ported-1.14d	Updated 1.14d //00442A61-BASE	Patch.h:29
+PATCH	D2WIN	D2BS_PATCH_GameDrawOOG_Intercept	0xF9A0D	CALL	len=5;target=GameDrawOOG_Intercept	ported-1.14d	Updated 1.14d //004F9A0D-BASE	Patch.h:35
+PATCH	D2CMP	D2BS_PATCH_GameCrashFix_Intercept	0x2091E5	CALL	len=10;target=GameCrashFix_Intercept	ported-1.14d	1.14d //006091E5-BASE	Patch.h:37
+PATCH	D2MCPCLIENT	D2BS_PATCH_RealmPacketRecv_Interception	0x4B1AE	CALL	len=6;target=RealmPacketRecv_Interception	stale-pre-1.14d?		Patch.h:39
+PATCH	FOG	D2BS_PATCH_LogMessageBoxA_Intercept	0x8CC4	CALL	len=6;target=LogMessageBoxA_Intercept	ported-1.14d	Updated 1.14d //00408CC4-BASE	Patch.h:41
+PATCH	FOG	D2BS_PATCH_D2GAME_exit0	0x82E0	JMP	len=6;target=D2GAME_exit0	ported-1.14d,captured-encoded	NEW 1.14d //004082E0-BASE	Patch.h:42
+PATCH	FOG	D2BS_PATCH_ErrorReportLaunch	0x1790	JMP	len=6;target=ErrorReportLaunch	ported-1.14d	NEW 1.14d //00401790-BASE	Patch.h:44
+COND_PATCH	BNCLIENT	D2BS_PATCH_ClassicSTUB	0x12366C	JMP	len=5;target=ClassicSTUB;cond=Vars.bUseRawCDKey	ported-1.14d	Updated 1.14d //0052366C-BASE	Patch.h:48
+COND_PATCH	BNCLIENT	D2BS_PATCH_LodSTUB	0x123958	JMP	len=5;target=LodSTUB;cond=Vars.bUseRawCDKey	ported-1.14d	Updated 1.14d //00523958-BASE	Patch.h:49
+COND_PATCH	D2CLIENT	D2BS_PATCH_FailToJoin	0x4EF28	CALL	len=6;target=FailToJoin;cond=Vars.bReduceFTJ	stale-pre-1.14d?	FTJ Reducer	Patch.h:50
+COND_PATCH	D2GFX	D2BS_PATCH_Multi	0xF5623	CALL	len=6;target=Multi;cond=Vars.bMulti	stale-pre-1.14d?		Patch.h:51
+COND_PATCH	D2GFX	D2BS_PATCH_Windowname	0xF5831	CALL	len=6;target=Windowname;cond=Vars.bMulti	stale-pre-1.14d?		Patch.h:52
+COND_PATCH	BNCLIENT	D2BS_PATCH_CacheFix	0x11944E	CALL	len=6;target=CacheFix;cond=Vars.bCacheFix	stale-pre-1.14d?		Patch.h:53
+COND_PATCH	BNCLIENT	D2BS_PATCH_CacheFix_2	0x119434	CALL	len=6;target=CacheFix;cond=Vars.bCacheFix	stale-pre-1.14d?		Patch.h:54
+COND_PATCH	D2CLIENT	D2BS_PATCH_BYTES_90	0x51C31	BYTES	len=2;target=0x90;cond=Vars.bSleepy	stale-pre-1.14d?	Sleep	Patch.h:55
+COND_PATCH	D2WIN	D2BS_PATCH_BYTES_EB	0xFA66F	BYTES	len=1;target=0xEB;cond=Vars.bSleepy	stale-pre-1.14d?	OOG Sleep	Patch.h:56
+DATA	D2COMMON	D2COMMON_MPQ_items_Records	0x4426F0	void*		va-only		MPQStats.cpp:6
+DATA	D2COMMON	D2COMMON_MPQ_items_Count	0x4426EC	DWORD		va-only		MPQStats.cpp:6
+DATA	D2COMMON	D2COMMON_MPQ_objects_Records	0x56D470	void*		va-only		MPQStats.cpp:10
+DATA	D2COMMON	D2COMMON_MPQ_objects_Count	0x56D474	DWORD		va-only		MPQStats.cpp:10
+DATA	D2COMMON	D2COMMON_MPQ_lvlmaze_Records	0x56CA08	void*		va-only		MPQStats.cpp:16
+DATA	D2COMMON	D2COMMON_MPQ_lvlmaze_Count	0x56CA0C	DWORD		va-only		MPQStats.cpp:16
+DATA	D2COMMON	D2COMMON_MPQ_lvlsub_Records	0x56CA10	void*		va-only	v	MPQStats.cpp:17
+DATA	D2COMMON	D2COMMON_MPQ_lvlsub_Count	0x56CA14	DWORD		va-only	v	MPQStats.cpp:17
+DATA	D2COMMON	D2COMMON_MPQ_lvlwarp_Records	0x56CA00	void*		va-only	v	MPQStats.cpp:18
+DATA	D2COMMON	D2COMMON_MPQ_lvlwarp_Count	0x56CA04	DWORD		va-only	v	MPQStats.cpp:18
+DATA	D2COMMON	D2COMMON_MPQ_lvltypes_Records	0x56C9F0	void*		va-only	v - Fixed to fully dump the same as d2jsp - TechnoHunter	MPQStats.cpp:20
+DATA	D2COMMON	D2COMMON_MPQ_lvltypes_Count	0x56C9FC	DWORD		va-only	v - Fixed to fully dump the same as d2jsp - TechnoHunter	MPQStats.cpp:20
+DATA	D2COMMON	D2COMMON_MPQ_runes_Records	0x56CA9C	void*		va-only	v	MPQStats.cpp:26
+DATA	D2COMMON	D2COMMON_MPQ_runes_Count	0x56CA98	DWORD		va-only	v	MPQStats.cpp:26
+DATA	D2COMMON	D2COMMON_MPQ_cubemain_Records	0x56D628	void*		va-only	v	MPQStats.cpp:27
+DATA	D2COMMON	D2COMMON_MPQ_cubemain_Count	0x56D62C	DWORD		va-only	v	MPQStats.cpp:27
+DATA	D2COMMON	D2COMMON_MPQ_gems_Records	0x56CA94	void*		va-only		MPQStats.cpp:28
+DATA	D2COMMON	D2COMMON_MPQ_gems_Count	0x56CA90	DWORD		va-only		MPQStats.cpp:28
+DATA	D2COMMON	D2COMMON_MPQ_experience_Records	0x56C8A8	void*		va-only	v - doesnt tap the last 2 levels of exp, ends at level 97 - TechnoHunter	MPQStats.cpp:29
+DATA	D2CLIENT	D2CLIENT_ItemDescFlag	0x3BCBE8	BYTE		va-only		JSUnit.cpp:453
+DATA	D2CLIENT	D2CLIENT_ItemDescUnit	0x3BCBF4	UnitAny*	alias_of=D2CLIENT_SelectedInvItem	va-only,duplicate-address		JSUnit.cpp:454
+DATA	D2WIN	D2WIN_ItemDescText	0x441EC8	wchar_t		va-only		JSUnit.cpp:458
