@@ -220,7 +220,7 @@ Hit tests always use the raw stored coordinates: for automap hooks they compare 
 1. `IsInRange(pt)` else return false.
 2. If `owner && JSVAL_IS_FUNCTION(owner cx, clicked)`: allocate `Event{owner, argc = 3, name = "ScreenHookClick", arg1 = button, arg2 = x, arg3 = y, arg4 = false}` (DWORDs on the heap), `ResetEvent(Vars.eventSignal)`, create `AutoRoot(owner->GetContext(), clicked)` (adds a value root on the owner's runtime from the game thread, `AutoRoot.cpp:4-6`, `:22-24`) and push it to `evt->functions`, then `owner->FireEvent(evt)`: `push_front` onto the owner's `EventList` under `Vars.cEventSection`, `TriggerOperationCallback()` if the owner `IsRunning()`, `SetEvent(owner->eventSignal)` (`Script.cpp:419-430`). The owner's run state is not checked before queueing.
 3. `WaitForSingleObject(Vars.eventSignal, 3000)` — `Vars.eventSignal` is a single process-wide manual-reset event (`Helpers.cpp:155`, `D2BS.h:76`).
-4. Timeout → `return false` (the click reaches the game); the queued `Event`, its args, name and `AutoRoot` are leaked and the event still runs later.
+4. Timeout → `return false`: this hook does not block, so the click reaches the game unless another hook blocked it. The queued `Event`, its args, name and `AutoRoot` are leaked, and the event still runs later; its late `SetEvent` is a stray signal (see Consequences).
 5. Signalled → `block = *(bool*)evt->arg4`; frees args, root and `evt` (the `_strdup`'d name is leaked every click) → return `block`.
 
 ### Execution on the owner script thread (`ExecScriptEvent`, `ScriptEngine.cpp:660-686`)
@@ -266,7 +266,8 @@ Applies to all five classes; class tables below reference it.
 | Aspect | Behaviour | Source |
 |---|---|---|
 | Storage | Accessor properties with flags `JSPROP_STATIC_VAR` = `ENUMERATE \| PERMANENT` (not `SHARED`, so the engine allocates a value slot; not `READONLY`) on prototype and instance. | `js32.h:101`, `dependencies/include/jsapi.h:1419` |
-| Removed hook | Getter and setter return `JS_TRUE` immediately when the private is `NULL` (after `remove()`, or on `X.prototype`): reads yield the slot value, writes are ignored. | e.g. `JSScreenHook.cpp:82-84`, `:121-123` |
+| Removed hook | Getter and setter return `JS_TRUE` immediately when the private is `NULL` (after `remove()`, or on `X.prototype`). Reads yield whatever the engine pre-loaded into `vp`, presumably the slot's cached value. Writes are ignored by D2BS. | e.g. `JSScreenHook.cpp:82-84`, `:121-123` |
+| Enumeration order | `for…in` / `Object.keys` follow the `JSPropertySpec` order, not the tinyid order. Frame: `x, y, xsize, ysize, visible, align, zorder, click, hover`. Box: `x, y, xsize, ysize, visible, color, opacity, align, zorder, click, hover`. Line: `x, y, x2, y2, visible, color, zorder, click, hover`. Text: `x, y, color, font, visible, text, align, zorder, click, hover`. Image: `x, y, visible, location, align, zorder, click, hover`. `remove` is not enumerable (`JS_FS` without `JSPROP_ENUMERATE`). | `JSScreenHook.h:18-27`, `:40-51`, `:64-73`, `:86-96`, `:109-117` |
 | Integer props | Setter requires `vp.isInt32()` (**Int tag tests**), else silently ignored; getter returns `Int32` (the C++ `uint` reinterpreted). | e.g. `JSScreenHook.cpp:129-130` |
 | `x`, `y` | Stored in `POINT location` (LONG) — negatives round-trip; the value `-1` is the destructor's sentinel and suppresses drawing. | `ScreenHook.h:95-104`, `ScreenHook.cpp:317` |
 | `visible` | Boolean only; moves the hook between lists under `globalSection`, re-appending at the end. | `ScreenHook.h:115-132` |
@@ -286,11 +287,11 @@ No enumerations are defined in the source beyond `Align`; values pass through to
 | Value | Domain in code | Where it goes |
 |---|---|---|
 | `align` | `Left=0`, `Right=1`, `Center=2` (`ScreenHook.h:27`) | see alignment table |
-| Box / Line `color` | `ushort`, passed as `DWORD dwColor` | palette index for `D2GFX_DrawRectangle` / `D2GFX_DrawLine` (`ScreenHook.cpp:401`, `:423`). D2BS itself uses `0xDF` (console background) and `0xFF` (cursor) (`Console.cpp:229`, `:249`). |
-| Text `color` | `ushort` → `D2WIN_DrawText` `dwColor` | D2 text color index (`DrawLogo` uses 4, `ScreenHook.cpp:21`); `ÿc<N>` codes inside the string override it. Index table: [Open questions](#open-questions). |
+| Box / Line `color` | `ushort`, passed unchanged as `DWORD dwColor` (values > 255 not clamped) | Presumably a palette index for `D2GFX_DrawRectangle` / `D2GFX_DrawLine` (`ScreenHook.cpp:401`, `:423`). D2BS itself uses `0xDF` (console background) and `0xFF` (cursor) (`Console.cpp:229`, `:249`). Semantics: [Open questions](#open-questions). |
+| Text `color` | `ushort` → `D2WIN_DrawText` `dwColor` | D2 text color index (`DrawLogo` uses 4, `ScreenHook.cpp:21`; the console uses 0, `Console.cpp:236`). In-string `ÿc<N>` codes are expected to override it (see [Primitives](#primitives)). Index table: [Open questions](#open-questions). |
 | Text `font` | `ushort` → `D2WIN_SetTextSize(font)`, restored after drawing | D2 font index; the console uses `Vars.dwConsoleFont` (`Console.cpp:236`). Valid range: [Open questions](#open-questions). |
 | Box `opacity` | `ushort` → `D2GFX_DrawRectangle` `dwTrans` | Draw/transparency mode. Legacy empirical notes (`doc/ScreenHooks.h:3-22`): 3 fully transparent, 0 very transparent, 1, 6 (color ignored, black), 2 very opaque, 4 (black, opaque), 5 and 7 opaque with color. D2BS uses 0 (console background) and 7 (cursor) (`Console.cpp:229`, `:249`). Default 0. |
-| Image `color` | `ushort`, truncated to `BYTE` at draw | Replaces **palette index 255** of the image; all other indices are drawn as-is (`D2Helpers.cpp:593-597`). Default 0. Not exposed as a property after construction. |
+| Image `color` | `ushort`, truncated to `BYTE` at draw | Replaces **palette index 255** of the image; all other indices are drawn as-is (`D2Helpers.cpp:593-597`). Default 0, so index-255 pixels are drawn as index 0. Not exposed as a property after construction. The color table `coltab[2][256]` is a single function-static shared by every image; the per-`CellFile` `mytabno` bit flips whenever the color differs from the last one drawn with that cell file (`D2Helpers.cpp:597`). |
 | Line draw arg 6 | constant `0xFF` | `D2GFX_DrawLine` `dwUnk` (`ScreenHook.cpp:401`) |
 
 ---
@@ -299,11 +300,11 @@ No enumerations are defined in the source beyond `Align`; values pass through to
 
 Path from `new Image(path, …)` / `img.location = path` to pixels:
 
-1. **Validation (broken).** `image_ctor` calls `isValidPath(path)` on its local buffer `path` *before* filling it (`JSScreenHook.cpp:610`, `:631-632`): the check runs on uninitialised stack memory (unpredictable result: may throw `"Invalid image file path"`, may pass; `getPathRelScript` `wcslen`s the garbage, `File.cpp:220-249`). The user string is then copied with `swprintf_s(path, 516, L"%s", szText)` and **never validated**; the `location` setter performs no validation at all. A string longer than 515 characters hits the CRT invalid-parameter handler.
+1. **Validation (broken).** `image_ctor` calls `isValidPath(path)` on its local buffer `path` *before* filling it (`JSScreenHook.cpp:610`, `:631-632`): the check runs on uninitialised stack memory (unpredictable result: may throw `"Invalid image file path"`, may pass; `getPathRelScript` `wcslen`s the garbage, `File.cpp:220-249`). The user string is then copied with `swprintf_s(path, 516, L"%s", szText)` and **never validated**; the `location` setter performs no validation at all. A string longer than 515 characters hits the CRT invalid-parameter handler. Because the path is only ever appended to `szScriptPath + L"\\"` (step 3), `..\` sequences escape the script directory, and absolute paths never work.
 2. `ImageHook` constructor stores `_wcsdup(path)` and calls `LoadCellFile(location, 3)` (`ScreenHook.h:245-250`); `SetImage` calls `LoadCellFile(location)` with the wide overload's default `3` (`ScreenHook.cpp:386`, `D2Helpers.h:58`).
 3. `LoadCellFile(const wchar_t*, 3)` (`D2Helpers.cpp:531-544`): builds `Vars.szScriptPath + L"\\" + path` (absolute — `szScriptPath` = DLL directory + `ScriptPath`, `Helpers.cpp:94`/`:133`, `D2BS.cpp:37-39`). If `CreateFileW` can open it → `LoadCellFile(fullpath, FALSE)`. Otherwise → `LoadCellFile(path, TRUE)`, which for a wide string logs `"Cannot specify wide character path for MPQ: …"` and returns `NULL` (`:525-528`). **Images can only come from the file system; MPQ (DC6) assets cannot be loaded** (the narrow MPQ branch using `D2WIN_LoadCellFile`, `D2Helpers.cpp:508-516`, `D2Ptrs.h:438`, is unreachable from hooks).
-4. **Cache.** `hash = sfh((char*)widePath, strlen((char*)widePath))` (`D2Helpers.cpp:546`): `strlen` on UTF-16 stops at the first zero byte, so for an ASCII path the hash covers **only the first character (the drive letter)** (`stringhash.cpp:13-40`). If `Vars.mCachedCellFiles` (`std::map<uint32, CellFile*>`, global, never cleared, `D2BS.h:102`) has that key, the cached pointer is returned (`:547-548`). Consequence: after the first file image is loaded, every other image path on the same drive returns the **first** image; if the first load failed (non-8-bit BMP), the cached `NULL` makes every later image fail.
-5. **Decode** (`:550-555`): `myInitCellFile(LoadBmpCellFile(path))`. `LoadBmpCellFile` (`D2Helpers.cpp:688-700`) reads the whole file and accepts only `'BM'`, `biBitCount == 8`, `BI_RGB`; it RLE-encodes the rows into an in-memory DC6 image (`D2Helpers.cpp:643-672`: header `{version 6, flags 1, encoding 0, termination 0xEEEEEEEE, 1 dir, 1 frame, …, width, height, …}`), treating **palette index 0 as transparent**; the BMP's own palette is ignored (indices map to the current D2 palette). Rows are read with BMP 4-byte stride; a negative (top-down) `biHeight` is not handled. Buffer allocated with `new BYTE[]`.
+4. **Cache.** `hash = sfh((char*)widePath, strlen((char*)widePath))` (`D2Helpers.cpp:546`): `strlen` on UTF-16 stops at the first zero byte, so for an ASCII path the hash covers **only the first character (the drive letter)** (`stringhash.cpp:13-40`). If `Vars.mCachedCellFiles` (`std::map<uint32, CellFile*>`, global, never cleared, `D2BS.h:102`) has that key, the cached pointer is returned (`:547-548`). Every full path starts with `Vars.szScriptPath` (step 3), so every image gets the same key. Consequence: after the first file image is loaded, every other `Image` (any path that exists on disk) gets the **first** image. If the first load failed (e.g. a non-8-bit BMP), the cached `NULL` makes every later image fail. Paths that do not exist never reach the cache (they fail in step 3).
+5. **Decode** (`:550-555`): `myInitCellFile(LoadBmpCellFile(path))`. `LoadBmpCellFile` (`D2Helpers.cpp:688-700`) reads the whole file and accepts only `'BM'`, `biBitCount == 8`, `BI_RGB`; it RLE-encodes the rows into an in-memory DC6 image (`D2Helpers.cpp:643-672`: header `{version 6, flags 1, encoding 0, termination 0xEEEEEEEE, 1 dir, 1 frame, …, width, height, …}`), treating **palette index 0 as transparent**; the BMP's own palette is ignored (indices map to the current D2 palette). Rows are read with BMP 4-byte stride; a negative (top-down) `biHeight` is not handled. Buffer allocated with `new BYTE[]`. Nothing checks the file size against the headers, `bfOffBits`, `biWidth` or `biHeight`, so a truncated or crafted file causes out-of-bounds reads (`D2Helpers.cpp:643-647`, `:691-695`). `AllocReadFile` returns without `CloseHandle` when the size is ≤ 0 (`D2Helpers.cpp:632-636`).
 6. `myInitCellFile` → `D2CMP_InitCellFile(cf, &cf, "?", 0, -1, "?")` (`D2Helpers.cpp:702-706`, RVA `0x201340`) converts it into a `CellFile` (`D2Structs.h:76-88`: DC6 header layout; D2BS reuses the two high bytes of the flags field as `mylastcol` / `mytabno` for its color-table trick).
 7. **Draw** via `myDrawAutomapCell` (see [Primitives](#primitives)); cell `0` only (`cells[0]`).
 8. **Re-pointing** (`img.location = p`, `ScreenHook.cpp:380-388`): `free(location); delete[] image;` — frees the *cached, shared* `CellFile` without removing it from the cache and without `globalSection` — then reloads, which (same drive-letter hash) returns the just-freed pointer. Changing `location` on a loaded image is a use-after-free in both the draw thread and every other `Image` sharing the cache entry.
@@ -323,8 +324,8 @@ Creates a D2 UI-frame (border) hook, drawn in game only.
 - **Native:** `frame_ctor` at `JSScreenHook.cpp:37`; registered as the `Frame` class constructor at `JSGlobalClasses.cpp:162` (`JS_InitClass` nargs 0, `ScriptEngine.cpp:232`).
 - **Arguments / overloads:** positional, all optional; an argument that fails its test keeps the default silently. 0 `x` int (0); 1 `y` int (0); 2 `xsize` int (0); 3 `ysize` int (0); 4 `align` int (0 = Left; any int); 5 `automap` boolean (false; stored, ignored by `Draw`); 6 `click` function (none); 7 `hover` function (none) (`JSScreenHook.cpp:45-60`). Extra arguments ignored. Never throws for bad argument types.
 - **Returns:** the new `Frame` object. Throws `"Failed to create frame object"` if `BuildObject` returns NULL (`:62-64`); the `"Failed to create framehook"` branch is unreachable (`new` throws on failure) (`:69-70`).
-- **Preconditions:** none checked. `gameState` forced to `IG` (`:66-67`), so it is drawn only by `GameDraw` in game regardless of the creating script; an OOG script can create one (never drawn, still clickable).
-- **Threading & blocking:** script thread; `globalSection` briefly (list insert). The hook is drawable by the game thread from inside the base constructor, before `JS_SetPrivate` (`:72`) and handler assignment (`:73-74`).
+- **Preconditions:** none checked; unlike the other constructors it never reads the script state. `gameState` is forced to `IG` (`:66-67`), so `GameDraw` draws it only in game, whatever the creating script. A Frame created by an OOG script (e.g. at the menu) is invisible in menus but still hit-tested there, and becomes visible once the client is in game.
+- **Threading & blocking:** script thread; `globalSection` briefly for the list insert. It waits if a draw pass holds the section, or a click dispatch (up to 3 s per pending handler; from inside a click handler, until that timeout). The hook is drawable by the game thread from inside the base constructor, before `JS_SetPrivate` (`:72`) and handler assignment (`:73-74`).
 - **Side effects:** heap `FrameHook`; appended to `visible`; `zorder` 1; hover function (if any) rooted with `JS_AddRoot`.
 - **Game internals:** `D2GFX_DrawFrame` → `D2GFX_DrawRectFrame_STUB` (`D2Helpers.cpp:919-925`, RECT* moved from `ecx` to `eax`) → `D2CLIENT_DrawRectFrame` (RVA `0x52E50`, `D2Ptrs.h:118`); `p_D2CLIENT_AutomapOn` for the automap gate.
 - **Quirks / bugs:** `automap` flag only gates visibility (drawn only while the automap is open) but coordinates are never transformed; Right alignment shifts the frame right by `xsize/2`; hit-test ignores alignment; code comment lists the same order as the code (`:36`).
@@ -514,13 +515,13 @@ Destroys the C++ hook immediately.
 - **JSClass:** `"Image"`, `JSCLASS_HAS_PRIVATE`, finalizer `hook_finalize`, construct `image_ctor` (`JSGlobalClasses.cpp:60-62`); `global_classes` entry `JSGlobalClasses.cpp:166`.
 - **Constructor:** real constructor; instances only from `new Image(...)` / `Image(...)`.
 - **Private data:** `ImageHook*` (`ScreenHook.h:235-275`): `Genhook` + `wchar_t* location` (user path, `_wcsdup`), `CellFile* image` (shared pointer from the global cache, may be `NULL`), `ushort color`. `location` leaks on remove/finalize; `image` is never freed there (cache-owned).
-- **Identity & lifetime:** the `CellFile` is shared by all `Image` objects whose path hashes equal (in practice all file images on one drive) and lives until process exit.
+- **Identity & lifetime:** the `CellFile` is shared by all `Image` objects whose path hashes are equal. Every full path starts with `szScriptPath`, so in practice that is every successfully loaded image ([Image loading](#image-loading) step 4). It lives until process exit, unless a `location` assignment frees it.
 
 ### `new Image(path, x, y, color, align, automap, click, hover)`
 
 Creates a hook drawing cell 0 of an image loaded from an 8-bit BMP under the script directory.
 - **Native:** `image_ctor` at `JSScreenHook.cpp:600`; registered at `JSGlobalClasses.cpp:166` (nargs 0).
-- **Arguments / overloads:** 0 `path` string (default `""`, non-strings not coerced) (`:612-613`); 1 `x` int (0); 2 `y` int (0) — vertical centre; 3 `color` int → `ushort` (0; replaces palette index 255); 4 `align` int (0); 5 `automap` boolean (false); 6 `click` function; 7 `hover` function (`:616-629`). Code comment at `:599` mislabels 6/7 as "onHover, onimage".
+- **Arguments / overloads:** 0 `path` string (default `""`, non-strings not coerced) (`:612-613`); 1 `x` int (0); 2 `y` int (0) — vertical centre of the hit box (`ScreenHook.cpp:372`; drawing: [Open questions](#open-questions) 4); 3 `color` int → `ushort` (0; replaces palette index 255); 4 `align` int (0); 5 `automap` boolean (false); 6 `click` function; 7 `hover` function (`:616-629`). Code comment at `:599` mislabels 6/7 as "onHover, onimage".
 - **Returns:** new `Image` (also when the image failed to load — it is then never drawn and never hit). Throws `"Invalid image file path"` depending on uninitialised memory (`:631-634`), `"Failed to create image object"` (`:636-638`); `"Failed to create ImageHook"` unreachable. `JS_GetStringCharsZ` NULL → **callee-return** (`:614-615`).
 - **Preconditions:** none; `gameState` from script state (`:603`).
 - **Threading & blocking:** script thread; synchronous file I/O (`CreateFileW`, whole-file read) inside the constructor; unsynchronised access to the global image cache.
@@ -533,7 +534,7 @@ Creates a hook drawing cell 0 of an image loaded from an 8-bit BMP under the scr
 | Property | Id/enum | JS type | R/W | Applies to / conditions | Value source | Notes |
 |---|---|---|---|---|---|---|
 | `x` | `IMAGE_X` (0) | int | R/W | — | `location.x` | |
-| `y` | `IMAGE_Y` (1) | int | R/W | — | `location.y` | vertical centre |
+| `y` | `IMAGE_Y` (1) | int | R/W | — | `location.y` | vertical centre of the hit box (drawing: Open question 4) |
 | `location` | `IMAGE_LOCATION` (2) | string | R/W | — | `ImageHook::location` (`GetImage` `ScreenHook.h:269`; `SetImage` `ScreenHook.cpp:380`) | getter `JS_InternUCString` of the stored user path (`JSScreenHook.cpp:669`); setter requires a string, no validation, no lock, frees the shared cached image → use-after-free |
 | `align` | `IMAGE_ALIGN` (3) | int | R/W | — | `alignment` | non-0/1 values behave as Center |
 | `visible` | `IMAGE_VISIBLE` (4) | boolean | R/W | — | `isVisible` | |
@@ -574,7 +575,7 @@ Projects a world (map) coordinate to automap pixel coordinates (the transform au
 - **Threading & blocking:** script thread; no locks; reads game globals and calls `D2CLIENT_GetAutomapSize` concurrently with the game thread.
 - **Side effects:** none (the 2-arg path overwrites its own `argv[0..1]` slots with the results, `:770-771`).
 - **Game internals:** `p_D2CLIENT_Divisor` (RVA `0x311254`, `D2Ptrs.h:185`), `p_D2CLIENT_Offset` (RVA `0x3A5198`, `D2Ptrs.h:153`), `D2CLIENT_GetAutomapSize` (RVA `0x5A710`, `D2Ptrs.h:89`); helper `ScreenToAutomap` `D2Helpers.cpp:364`.
-- **Quirks / bugs:** the object form is unusable; its dead tail would have returned `{x: <the input object>, y: argv[1]}` (argv over-read) (`:755-756`). The name is misleading (input is world space, not screen space). Non-integral inputs (e.g. `me.x / 2` = 12.5) are rejected.
+- **Quirks / bugs:** the object form is unusable; its dead tail would have returned `{x: <the input object>, y: argv[1]}` (argv over-read) (`:755-756`). The name is misleading (input is world space, not screen space). Non-integral inputs (e.g. `me.x / 2` = 12.5) are rejected. The `JS_NewObject` result is not null-checked before `JS_SetProperty` (`:772-773`).
 
 ### `automapToScreen(point | x, y)`
 
@@ -589,7 +590,7 @@ Applies D2BS's automap→screen formula `x' = 8 − Offset.x + x·M`, `y' = 8 + 
 - **Threading & blocking:** script thread; redundant `JS_BeginRequest`/`JS_EndRequest` pairs around conversions (`:820-825`); no locks.
 - **Side effects:** none.
 - **Game internals:** `p_D2CLIENT_AutomapMode` (int, RVA `0x311254` — **same address as `Divisor`**, `D2Ptrs.h:152` vs `:185`), `p_D2CLIENT_Offset`; helper `AutomapToScreen` `D2Helpers.cpp:378-381`.
-- **Quirks / bugs:** not the inverse of `screenToAutomap` (no un-rotation, opposite sign on `Offset.y`, the ±8 terms do not cancel). The object form's dead tail would have written the *unconverted* `ix`/`iy` back into the caller's object and returned it (`:805-813`).
+- **Quirks / bugs:** not the inverse of `screenToAutomap` (no un-rotation, opposite sign on `Offset.y`, the ±8 terms do not cancel). The object form's dead tail would have written the *unconverted* `ix`/`iy` back into the caller's object and returned it (`:805-813`). The `JS_NewObject` result is not null-checked (`:831-832`).
 
 ---
 
@@ -602,7 +603,7 @@ Synthesis lives in [../rpc-considerations.md](../rpc-considerations.md); the scr
 - Click callbacks are synchronous today: the game thread blocks up to 3 s per hook waiting for a script. A networked client cannot be waited on from the WH_MOUSE hook; "consume the click" must be a hook attribute decided locally, with the notification delivered asynchronously.
 - Hover is not implemented; Line hooks are not clickable; hit tests ignore alignment (Box/Frame), automap and draw state.
 - Coordinates: client pixels (in-game size from `p_D2CLIENT_ScreenSizeX/Y`, OOG fixed 800×600), or world coordinates projected per frame for automap hooks.
-- Images: only 8-bit BMPs from the script directory; the existing cache is keyed by drive letter and must be replaced.
+- Images: only 8-bit BMPs addressed relative to the script directory. Paths are not validated (`..\` escapes the directory), and BMP headers are trusted without bounds checks, so remote-supplied paths or files need validation. The existing cache is keyed by drive letter and must be replaced.
 
 ---
 
@@ -619,6 +620,8 @@ Synthesis lives in [../rpc-considerations.md](../rpc-considerations.md); the scr
 | `doc/Image.h:13`, `:82-84`: "filename to load the image from". | Only 8-bit uncompressed BMP files relative to the script folder; no MPQ/DC6 (`D2Helpers.cpp:525-544`, `:694`); cache keyed by first path character (`:546`). |
 | `doc/Image.h:19`: "color of the Image". | Replaces palette index 255 only (`D2Helpers.cpp:597`); not readable/settable after construction. |
 | `doc/Frame.h:29-30`, `doc/Box.h:35-36`, `doc/Text.h:32-33`, `doc/Image.h:31-32`, `doc/Line.h:24-25`: `automap` = "automap coordinate space". | Inputs are world coordinates projected each frame; Frame ignores the flag except as a visibility gate (`ScreenHook.cpp:436-451`, `:41`). |
+| `doc/Frame.h:11-40`: Frame described like any other hook. | Always `IG`: drawn only in game, even when created out of game (`JSScreenHook.cpp:66-67`). |
+| `doc/Frame.h:13`, `doc/Box.h:13`, `doc/Text.h:14`, `doc/Image.h:15`: `x` is "left". | That holds only for align 0. Text Right/Center put the right edge / centre at `x` (`ScreenHook.cpp:319`). Box/Frame Right shifts the shape right by `xsize/2` (`:413-415`, `:442-444`). |
 | `doc/Frame.h:21-27`, `doc/Box.h:27-33`: align `1` = Right. | Box/Frame "Right" shifts the shape right by half its width (`ScreenHook.cpp:413-415`, `:442-444`); hit test ignores align. |
 | `doc/*.h` `remove()`: "Remove … and destroy the corresponding object." | Deletes the C++ hook only; the JS object remains (null private); derived-class buffers leak (non-virtual `~Genhook`, `ScreenHook.h:52`). |
 | `doc/globalFuncs.h:1851-1893`: `screenToAutomap(Object)` / `automapToScreen(Object)` documented; "screen coordinates to automap". | Object forms always throw (`JSScreenHook.cpp:748`, `:797`); `screenToAutomap` input is world coordinates; `automapToScreen` is not its inverse. |
@@ -641,3 +644,6 @@ Synthesis lives in [../rpc-considerations.md](../rpc-considerations.md); the scr
 10. **Draw-order position of `0x453B30`.** Which D2Client routine is replaced by the `GameDraw` jump, and thus whether in-game hooks paint above or below the game's UI panels, is not determinable here (see [../memory/patches-and-hooks.md](../memory/patches-and-hooks.md)).
 11. **Frame OOG crash.** Why `D2CLIENT_DrawRectFrame` crashes out of game (the reason given for forcing `IG`, `JSScreenHook.cpp:66`) is not documented in source.
 12. **Newlines in text.** Whether `D2WIN_DrawText` renders `\n` as a line break is not determinable from source.
+13. **Box/Line color semantics.** Whether `D2GFX_DrawRectangle` / `D2GFX_DrawLine` `dwColor` is an 8-bit palette index (D2BS passes `0xDF` / `0xFF`), and what values above 255 do, is game behaviour.
+14. **Finalization at script teardown.** Whether `JS_DestroyContext` / `JS_DestroyRuntime` (`Script.cpp:53-55`) runs a GC that finalizes every remaining hook object, and so calls `hook_finalize` and frees the C++ hooks, is engine behaviour not visible in the repo. If not, every hook still alive at script end leaks (it is already unlinked by `Genhook::Clean`).
+15. **Getter result for a `NULL` private.** What `vp` holds when a getter returns without setting it (slot value vs `undefined`), and whether the engine writes setter values into the slot (see also 6), are engine details. They decide what a removed hook's properties read back.

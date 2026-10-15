@@ -42,11 +42,11 @@ The shared conventions in [globals-core.md, "Conventions shared by all entries"]
 Mechanics:
 
 - `contextCallback` loops over `global_classes` (`ScriptEngine.cpp:358-359`) and calls `ScriptEngine::InitClass` (`ScriptEngine.cpp:230-234`), which runs `JS_InitClass(cx, global, NULL, classp, classp->construct, 0, props, methods, s_props, s_methods)`. The constructor is the `JSClass`'s `construct` slot, filled by the `JSCLASS_SPEC` macro (`js32.h:163-164`). `nargs` is always `0`. The `ctor`/`argc` fields of the `JSClassSpec` row are ignored. Instance properties and methods therefore exist on **`X.prototype`**, and statics on the constructor.
-- Every instance is made by `BuildObject` (`js32.cpp:8-28`). It calls `JS_NewObject(cx, classp, NULL, NULL)` (so the engine picks the class prototype), then defines **the same methods and properties again as own properties of the instance** (`js32.cpp:18-21`), then calls `JS_SetPrivate`.
+- Every instance except a `Sandbox` is made by `BuildObject` (`js32.cpp:8-28`). It calls `JS_NewObject(cx, classp, NULL, NULL)` (so the engine picks the class prototype), then defines **the same methods and properties again as own properties of the instance** (`js32.cpp:18-21`), then calls `JS_SetPrivate`. `sandbox_ctor` calls `JS_NewObject` + `JS_DefineFunctions` itself instead (`JSSandbox.cpp:29-35`). `dopen`, `Folder.prototype.create` and `getScripts` don't check `BuildObject`'s result, so a failure there yields `null` instead of an exception (`JSDirectory.cpp:60-61`, `:187-188`, `JSScript.cpp:198-200`).
 - `EMPTY_CTOR` (`js32.h:136-139`) throws `"Invalid Operation"`. `File`, `FileTools`, `Folder`, `DBStatement`, `Socket` and `D2BSScript` use it, so `new File()` and the rest always throw.
-- Prototype objects have a NULL private. A property getter that runs against a prototype (e.g. `JSON.stringify(SQLite.prototype)`) behaves per class: `File` throws `"Couldn't get file object"` (`JSFile.cpp:128`); `SQLite` and `DBStatement` dereference NULL (`JSSQLite.cpp:244-250`, `:559-571`); `Folder` returns `JS_FALSE` with no exception, which aborts the script uncatchably (`JSDirectory.cpp:214-215`); `D2BSScript` and `Socket` return `undefined` (`JSScript.cpp:22-23`, `JSSocket.cpp:29`). Methods called with a foreign `this` follow the same pattern. The `JS_GetInstancePrivate(..., NULL)` calls never report an error, and most methods do not NULL-check.
+- Prototype objects have a NULL private. A property getter that runs against a prototype (e.g. `JSON.stringify(SQLite.prototype)`) behaves per class: `File` throws `"Couldn't get file object"` (`JSFile.cpp:128`); `SQLite` and `DBStatement` dereference NULL (`JSSQLite.cpp:244-250`, `:559-571`); `Folder` returns `JS_FALSE` with no exception, which aborts the script uncatchably (`JSDirectory.cpp:214-215`); `D2BSScript` and `Socket` return `undefined` (`JSScript.cpp:22-23`, `JSSocket.cpp:29`). Methods called with a foreign `this` follow the same pattern. The `JS_GetInstancePrivate(..., NULL)` calls never report an error, and most methods do not NULL-check. `Folder` is worse: its methods and getter use the js32 wrapper `JS_GetPrivate(cx, obj)` (`js32.cpp:65-67`), which does **no class check** (`JSDirectory.cpp:80`, `:128`, `:171`, `:194`, `:212`). Calling a `Folder` method on its prototype dereferences NULL, and calling one with a foreign `this` (e.g. `Folder.prototype.remove.call(someFile)`) reinterprets that object's private struct as `DirData`.
 - All method tables use `JS_FS`/`JS_FN` with `FUNCTION_FLAGS` = `JSFUN_STUB_GSOPS` (`js32.h:134`). The "declared arity" in each entry is only `Function.length`.
-- Properties use tinyid specs: getter/setter `JSOP_WRAPPER(...)`, flags `JSPROP_PERMANENT_VAR` = READONLY|ENUMERATE|PERMANENT or `JSPROP_STATIC_VAR` = ENUMERATE|PERMANENT (`js32.h:100-101`). Read-only properties ignore writes silently. Strict mode is not enabled at the language level (`JSOPTION_STRICT` only adds warnings).
+- Properties use tinyid specs: getter/setter `JSOP_WRAPPER(...)`, flags `JSPROP_PERMANENT_VAR` = READONLY|ENUMERATE|PERMANENT or `JSPROP_STATIC_VAR` = ENUMERATE|PERMANENT (`js32.h:100-101`). Writes to read-only properties don't throw. Strict mode is not enabled at the language level (`JSOPTION_STRICT`, `Script.cpp:131`, only adds warnings). Numeric tinyids are listed in each properties table, since a replacement that keeps the switch-based getters needs them.
 
 ### Threading model (all classes)
 
@@ -63,6 +63,8 @@ Mechanics:
 | Bytes read from files, SQLite TEXT, socket data | `AnsiToUnicode(s)`. Despite the name, the default code page is **`CP_UTF8`** (`Helpers.h:9`, `Helpers.cpp:16-22`). `MultiByteToWideChar` is called with length `-1`, so decoding **stops at the first NUL byte**. It also uses flags `0`, so invalid sequences get the API's default replacement. | `JSFile.cpp:347`, `:379`, `:415`, `:474`; `JSFileTools.cpp:180`; `JSSQLite.cpp:345`, `:403`, `:430`, `:565`; `JSSocket.cpp:161` |
 | UTF-8 BOM | `EF BB BF` is skipped only if the read **started at file offset 0** (File methods) or always (`FileTools.readText`). | `JSFile.cpp:344`, `:375`, `:411`, `:471`; `JSFileTools.cpp:174` |
 | Strings written to files, SQL text, bound strings, socket sends | `JS_EncodeStringToUTF8` (UTF-8, no terminator written) | `File.cpp:67`, `JSSQLite.cpp:138`, `:158`, `:176`, `:458`, `:472`; `JSSocket.cpp:135` |
+| Names passed to `char*` JSAPI calls | `getObject` column names (`sqlite3_column_name`, UTF-8) and the `Sandbox` property hooks (`JS_EncodeStringToUTF8`) go to name-based `JS_SetProperty`/`JS_DefineProperty`/`JS_LookupProperty`/… calls. Those inflate each byte to one UTF-16 unit ([globals-core.md strings table](globals-core.md#strings-and-encodings)), so non-ASCII names are mangled. | `JSSQLite.cpp:331-336`, `JSSandbox.cpp:69-76`, `:124-126` |
+| Socket host names | UTF-8 (`JSSocket.cpp:78`), matched against `Vars.szHosts`, which is UTF-8 too (`Helpers.cpp:138-139`), then passed to the ANSI-code-page API `gethostbyname` (`JSSocket.cpp:97`) | |
 | Text-mode CRT translation | Files opened with `t` (or with no `t`/`b`, which defaults to text) translate `\r\n`↔`\n`. On input, Ctrl-Z (`0x1A`) is treated as end of file (MSVC text-mode semantics). | `JSFile.cpp:193`, `JSFileTools.cpp:90-91`, `:145`, `:195`, `:224` |
 | Error messages | `JS_ReportError` takes narrow `printf`-style formats. A wide string passed to `%s` shows only its first character (`JSDirectory.cpp:183`); see Open questions for `%ls` (`File.cpp:202`). | |
 
@@ -93,7 +95,14 @@ Consequences:
 
 Signature: `FILE* fileOpenRelScript(const wchar_t* filename, const wchar_t* mode, JSContext* cx)`.
 
-`getPathRelScript`, and on failure `JS_ReportError("Invalid file name")` → `NULL` (`File.cpp:193-196`). Otherwise `_wfopen_s(&f, fullPath, mode)`, and on failure `JS_ReportError("Couldn't open file %ls: %s", filename, strerror-text)` → `NULL` (`File.cpp:199-204`). Callers return `JS_FALSE` on `NULL`, so the reported error becomes a catchable exception. MSVC's `_wfopen_s` opens files **non-shareable** (`_SH_SECURE`: other opens may share read-only access, never write access), so any open `File` handle, including one that is unreachable but not yet GC'd, can make other scripts' writes to that file fail with `"Couldn't open file …"`.
+`getPathRelScript`, and on failure `JS_ReportError("Invalid file name")` → `NULL` (`File.cpp:193-196`). Otherwise `_wfopen_s(&f, fullPath, mode)`, and on failure `JS_ReportError("Couldn't open file %ls: %s", filename, strerror-text)` → `NULL` (`File.cpp:199-204`). Callers return `JS_FALSE` on `NULL`, so the reported error becomes a catchable exception. The `%s` part is the CRT's `_strerror_s(…, NULL)` text for the current `errno`, which ends in a newline.
+
+Sharing: MSVC documents `_wfopen_s` files as **not shareable**. The CRT opens them in `_SH_SECURE` mode, which shares read access only when the open itself is read-only (CRT behaviour, not visible in this repo). As a result:
+
+- A read-mode handle (`r`, `rt`, `rb`) lets other readers open the file but no writers.
+- A write or append handle (`w`, `w+t`, `a+`, …) blocks every other open.
+
+Any open handle can make other opens of that file, from any script or process, fail with `"Couldn't open file …"`. That includes a handle held by an unreachable `File` that hasn't been GC'd yet, and one leaked by [`FileTools.copy`](#filetoolscopysrcpath-dstpath-overwrite).
 
 ### C helper `isValidPath` (`File.cpp:258`)
 
@@ -131,10 +140,10 @@ Dispatches on `JS_TypeOfValue`, which follows `typeof` (`dependencies/include/js
 | JS value | Text mode (`isBinary=false`) | Binary mode | Returns | Source |
 |---|---|---|---|---|
 | `undefined` | **4 zero bytes** (an `int` 0), even in text mode | 4 zero bytes | `true` on success | `File.cpp:57-65` |
-| string | UTF-8 bytes, no terminator | same | compares `strlen(str)` **after `JS_free(str)`** (use-after-free) | `File.cpp:66-75` |
-| int-tagged number | decimal (`_itoa_s`) | locked: 4-byte LE `int32`. Unlocked: **writes 4 bytes of `dval` (0.0)** instead of `ival` (`File.cpp:92`), so the output is always `00 00 00 00` | | `File.cpp:87-96`, `:112-125` |
-| double-tagged number | `sprintf_s("%.16f")` into a 64-char buffer. **\|x\| ≥ ~1e46 overflows it**, which triggers the CRT invalid-parameter handler and terminates the process (no custom handler is installed; only `SetUnhandledExceptionFilter`, `D2BS.cpp:93`) | 8-byte IEEE double | | `File.cpp:78-86`, `:98-111` |
-| boolean | `"true"` / `"false"` | 1 byte (`sizeof(bool)`) | | `File.cpp:128-144` |
+| string | UTF-8 bytes, no terminator. Length is `strlen`, so a string containing U+0000 is **silently cut at the first NUL** | same | compares `strlen(str)` **after `JS_free(str)`** (use-after-free); a NULL from `JS_EncodeStringToUTF8` (OOM) crashes in `strlen` | `File.cpp:66-75` |
+| int-tagged number | decimal (`_itoa_s`) | locked: 4-byte LE `int32`. Unlocked: **writes 4 bytes of `dval` (0.0)** instead of `ival` (`File.cpp:92`), so the output is always `00 00 00 00` | `true` if fully written | `File.cpp:87-96`, `:112-125` |
+| double-tagged number | `sprintf_s("%.16f")` into a 64-char buffer. **x ≥ ~1e46, or x ≤ ~-1e45 (the sign takes a byte), overflows it**, which triggers the CRT invalid-parameter handler and terminates the process (no custom handler is installed; only `SetUnhandledExceptionFilter`, `D2BS.cpp:93`) | 8-byte IEEE double | `true` if fully written | `File.cpp:78-86`, `:98-111` |
+| boolean | `"true"` / `"false"` | 1 byte (`sizeof(bool)`) | `true` if fully written | `File.cpp:128-144` |
 | `null`, objects, arrays, functions | nothing written | nothing written | `false` (array support is commented out, `File.cpp:146-170`) | `File.cpp:172` |
 
 Whether a number is int- or double-tagged is an engine detail: integral results of arithmetic may be doubles, e.g. writing `3` might produce `3.0000000000000000`.
@@ -147,7 +156,7 @@ Whether a number is int- or double-tagged is an engine detail: integral results 
 - **Constructor:** `new File()` throws `"Invalid Operation"` (`JSFile.cpp:39`). Instances come only from `File.open`.
 - **Private data:** `FileData` (`JSFile.cpp:28-37`): `int mode` (0-2 = text read/write/append, 3-5 = binary), `wchar_t* path` (`_wcsdup` of the name **as passed**), `bool autoflush`, `bool locked`, `FILE* fptr` (NULL while closed), plus `lockLocation`/`line` in DEBUG builds. Owned by the wrapper. `file_finalize` (`JSFile.cpp:570-587`) frees `path`, unlocks the stream if `locked`, closes `fptr` if open, and deletes the struct.
 - **Identity & lifetime:** each `File` owns one CRT stream. Closing does not detach the private, so a closed `File` can be reopened. There is no equality hook (`file_equality` is declared at `JSFile.h:11` but commented out at `JSFile.cpp:41-52`), so `==` is object identity. Nothing is shared between scripts.
-- **Locking (`lockFile`):** `_lock_file(fptr)` at open/reopen (`JSFile.cpp:211-212`, `:266-267`), `_unlock_file` at close/finalize (`:238`, `:576`). This is the CRT's **in-process, per-`FILE*` recursive lock**, held by the opening script thread. It does not stop other scripts or processes from opening the file. Cross-process exclusivity comes from `_wfopen_s` sharing ([fileOpenRelScript](#c-helper-fileopenrelscript-filecpp188)) in every mode. With `locked`, the code calls the locking CRT functions, otherwise the `_nolock` variants. Every access happens on the owning thread anyway.
+- **Locking (`lockFile`):** `_lock_file(fptr)` at open/reopen (`JSFile.cpp:211-212`, `:266-267`), `_unlock_file` at close/finalize (`:238`, `:576`). This is the CRT's **in-process, per-`FILE*` recursive lock**, held by the opening script thread. It does not stop other scripts or processes from opening the file. Exclusivity against other openers comes from `_wfopen_s` sharing ([fileOpenRelScript](#c-helper-fileopenrelscript-filecpp188)), whatever `lockFile` is: a `FILE_READ` handle keeps writers out, and a `FILE_WRITE`/`FILE_APPEND` handle keeps everyone out. With `locked`, the code calls the locking CRT functions, otherwise the `_nolock` variants. Every access happens on the owning thread anyway.
 
 ### File properties
 
@@ -155,19 +164,19 @@ All are own properties of each instance (and of `File.prototype`), with getter `
 
 | Property | Id/enum | JS type | R/W | Applies to / conditions | Value source | Notes |
 |---|---|---|---|---|---|---|
-| `readable` | `FILE_READABLE` (`JSFile.h:98`) | boolean | R | any | `fptr && !feof && !ferror` (`JSFile.cpp:62-63`) | Ignores mode; `w+`/`a+` are readable. |
-| `writeable` | `FILE_WRITEABLE` (`JSFile.h:99`) | boolean | R | any | `fptr && !ferror && mode%3 > FILE_READ` (`JSFile.cpp:65-66`) | Spelled `writeable`; legacy says `writable`. |
-| `seekable` | `FILE_SEEKABLE` (`JSFile.h:100`) | boolean | R | any | `fptr && !ferror` (`JSFile.cpp:68-69`) | |
-| `mode` | `FILE_MODE` (`JSFile.h:101`) | number | R | any | `mode % 3` (`JSFile.cpp:71-72`) | Compare with `FILE_READ/WRITE/APPEND`. |
-| `binaryMode` | `FILE_BINARYMODE` (`JSFile.h:102`) | boolean | R | any | `mode > 2` (`JSFile.cpp:74-75`) | |
-| `length` | `FILE_LENGTH` (`JSFile.h:103`) | number | R | open → size, closed → 0 | `_filelength(_fileno(fptr))` (`JSFile.cpp:77-82`) | On-disk size: unflushed buffered writes are not counted. |
-| `path` | `FILE_PATH` (`JSFile.h:104`) | string | R | any | `fdata->path + 1` (`JSFile.cpp:84`) | **Drops the first character** of the name as passed. Correct only for names written with a leading `/` or `\` (`File.open("a.txt")` → `".txt"`). An empty name can't reach here (rejected at open). |
-| `position` | `FILE_POSITION` (`JSFile.h:105`) | number | R | open → offset, closed → 0 | `ftell` / `_ftell_nolock` (`JSFile.cpp:86-94`) | Byte offset; text-mode `ftell` accounts for CRLF. |
-| `eof` | `FILE_EOF` (`JSFile.h:106`) | boolean | R | open → `feof`, closed → `true` | `JSFile.cpp:95-100` | Becomes true only after a read hits the end. |
-| `accessed` | `FILE_ACCESSED` (`JSFile.h:107`) | number | R | open → time, closed → 0 | `_fstat(...).st_atime` (`JSFile.cpp:104-110`) | Seconds since 1970-01-01 UTC, 32-bit `time_t` (`_USE_32BIT_TIME_T`, `JSFile.cpp:17`). Not a `Date`. |
-| `created` | `FILE_CREATED` (`JSFile.h:108`) | number | R | as above | `st_ctime` (`JSFile.cpp:118-124`) | Windows `st_ctime` is creation time. |
-| `modified` | `FILE_MODIFIED` (`JSFile.h:109`) | number | R | as above | `st_mtime` (`JSFile.cpp:111-117`) | |
-| `autoflush` | `FILE_AUTOFLUSH` (`JSFile.h:110`) | boolean | R/W | any | `fdata->autoflush`; setter `file_setProperty` (`JSFile.cpp:133-148`) | Assigning a non-boolean is silently ignored (`:140`). |
+| `readable` | `FILE_READABLE` = 3 (`JSFile.h:98`) | boolean | R | any | `fptr && !feof && !ferror` (`JSFile.cpp:62-63`) | Ignores mode; `w+`/`a+` are readable. |
+| `writeable` | `FILE_WRITEABLE` = 4 (`JSFile.h:99`) | boolean | R | any | `fptr && !ferror && mode%3 > FILE_READ` (`JSFile.cpp:65-66`) | Spelled `writeable`; legacy says `writable`. |
+| `seekable` | `FILE_SEEKABLE` = 5 (`JSFile.h:100`) | boolean | R | any | `fptr && !ferror` (`JSFile.cpp:68-69`) | |
+| `mode` | `FILE_MODE` = 6 (`JSFile.h:101`) | number | R | any | `mode % 3` (`JSFile.cpp:71-72`) | Compare with `FILE_READ/WRITE/APPEND`. |
+| `binaryMode` | `FILE_BINARYMODE` = 12 (`JSFile.h:102`) | boolean | R | any | `mode > 2` (`JSFile.cpp:74-75`) | |
+| `length` | `FILE_LENGTH` = 7 (`JSFile.h:103`) | number | R | open → size, closed → 0 | `_filelength(_fileno(fptr))` (`JSFile.cpp:77-82`) | On-disk size: unflushed buffered writes are not counted. |
+| `path` | `FILE_PATH` = 8 (`JSFile.h:104`) | string | R | any | `fdata->path + 1` (`JSFile.cpp:84`) | **Drops the first character** of the name as passed. Correct only for names written with a leading `/` or `\` (`File.open("a.txt")` → `".txt"`). An empty name can't reach here (rejected at open). |
+| `position` | `FILE_POSITION` = 9 (`JSFile.h:105`) | number | R | open → offset, closed → 0 | `ftell` / `_ftell_nolock` (`JSFile.cpp:86-94`) | Byte offset; text-mode `ftell` accounts for CRLF. |
+| `eof` | `FILE_EOF` = 10 (`JSFile.h:106`) | boolean | R | open → `feof`, closed → `true` | `JSFile.cpp:95-100` | Becomes true only after a read hits the end. |
+| `accessed` | `FILE_ACCESSED` = 13 (`JSFile.h:107`) | number | R | open → time, closed → 0 | `_fstat(...).st_atime` (`JSFile.cpp:104-110`) | Seconds since 1970-01-01 UTC, 32-bit `time_t` (`_USE_32BIT_TIME_T`, `JSFile.cpp:17`). Not a `Date`. |
+| `created` | `FILE_CREATED` = 14 (`JSFile.h:108`) | number | R | as above | `st_ctime` (`JSFile.cpp:118-124`) | Windows `st_ctime` is creation time. |
+| `modified` | `FILE_MODIFIED` = 15 (`JSFile.h:109`) | number | R | as above | `st_mtime` (`JSFile.cpp:111-117`) | |
+| `autoflush` | `FILE_AUTOFLUSH` = 11 (`JSFile.h:110`) | boolean | R/W | any | `fdata->autoflush`; setter `file_setProperty` (`JSFile.cpp:133-148`) | Assigning a non-boolean is silently ignored (`:140`). |
 
 ### `File.open(path, mode[, binary[, autoflush[, lockFile]]])`
 
@@ -230,7 +239,7 @@ Reads `count` bytes (text mode) or `count` 32-bit integers (binary mode).
 - **Threading & blocking:** synchronous `fread` on the script thread. `clearerr` first (`:282`).
 - **Side effects:** advances the position.
 - **Game internals:** none.
-- **Quirks / bugs:** the legacy docs promise "bytes" in binary mode, but the code reads ints. A text-mode `count` can split a multi-byte UTF-8 sequence. The BOM test uses the number of bytes read (`size > 2`, `:344`).
+- **Quirks / bugs:** the legacy docs promise "bytes" in binary mode, but the code reads ints. A text-mode `count` can split a multi-byte UTF-8 sequence. The BOM test uses the number of bytes read (`size > 2`, `:344`). The buffer is `new int[count + 1]` / `new char[count + 1]` (`:289`, `:331`), so a huge `count` (up to 2³¹−1) makes `new` throw `std::bad_alloc` through the engine. Nothing on the script thread catches it (`Script.cpp:192-195`, `:473-484`), so the process dies.
 
 ### `File.prototype.readLine()`
 
@@ -282,7 +291,7 @@ Writes each argument using [`writeValue`](#c-helper-writevalue-filecpp49).
 - **Threading & blocking:** synchronous `fwrite`; `fflush` afterwards if `autoflush` (`:489-494`).
 - **Side effects:** disk writes. In `FILE_APPEND` mode, writes always go to the end.
 - **Game internals:** none.
-- **Quirks / bugs:** binary int writes on unlocked files write zeros (`File.cpp:92`). Large doubles in text mode kill the process (`File.cpp:103`). `null`, arrays and objects are silently dropped. In `w+`/`a+` a write directly after a read without a seek/flush is undefined C behaviour; `read()` flushes, but `readLine`/`readAll` do not.
+- **Quirks / bugs:** binary int writes on unlocked files write zeros (`File.cpp:92`). Large doubles in text mode kill the process (`File.cpp:103`). `null`, arrays and objects are silently dropped. C requires a flush or seek between a write and a following read, and a seek between a read and a following write. Text-mode `read()` flushes before reading (`:326-329`) and `readAll()` seeks before reading (`:442-456`), so read-after-write is fine for those two. `readLine`, `readAllLines` and binary `read()` do neither, and nothing seeks before `write()`, so in `w+`/`a+` switching from reading to writing without `seek`/`reset`/`end` is undefined behaviour.
 
 ### `File.prototype.seek(n[, isLines[, fromStart]])`
 
@@ -385,10 +394,10 @@ Copies a file byte by byte **in text mode**.
 - **Game internals:** none.
 - **Quirks / bugs:**
   - **`overwrite` is inverted:** `overwrite === true` with an existing target returns *without copying* (`:87-88`), while the default (`false`) always overwrites.
-  - **The destination is truncated even when the source can't be opened.** Both opens run before the NULL check (`:90-95`), so `copy("missing", "important")` empties `important`. The surviving handle leaks in that case.
+  - **The destination is truncated even when the source can't be opened.** Both opens run before the NULL check (`:90-95`), so `copy("missing", "important")` empties `important`. The surviving `FILE*` has no owner and is **never closed**, so it holds its sharing lock ([fileOpenRelScript](#c-helper-fileopenrelscript-filecpp188)) until Game.exe exits. A leaked destination handle (write mode) blocks every later open of that file. A leaked source handle (read mode) blocks every later writer.
   - Text mode corrupts binary files (CRLF conversion; `0x1A` ends the input).
-  - Copying a file onto itself empties it.
-  - A mid-loop error throws without closing either file (`:99-108`), so the error-cleanup block at `:111-119` is unreachable and the partial target is never deleted.
+  - Copying a file onto itself: given `_wfopen_s`'s sharing, the `"w"` open of the already-open (read-mode) source fails with `"Couldn't open file …"` before anything is truncated, and the source handle leaks as above.
+  - A mid-loop error throws without closing either file (`:99-108`), so both handles leak permanently, the error-cleanup block at `:111-119` is unreachable, and the partial target is never deleted.
 
 ### `FileTools.exists(path)`
 
@@ -427,7 +436,7 @@ Truncates or creates a file and writes the values as text.
 - **Threading & blocking:** holds **`Vars.cFileSection`** (process-wide) across open, writes, flush and close (`:192`, `:211`), so it blocks every other script's `writeText`/`appendText` for the duration of the disk I/O.
 - **Side effects:** mode `"w"` (default text mode, LF→CRLF).
 - **Game internals:** none.
-- **Quirks / bugs:** `null` and objects make it return `false` without writing anything for them. Doubles ≥ ~1e46 crash the process (`File.cpp:103`). The legacy docs mention "binary representation (for binary files)", but output is always text.
+- **Quirks / bugs:** `null` and objects make it return `false` without writing anything for them. Doubles of magnitude ≥ ~1e45 to 1e46 crash the process (`File.cpp:103`). The legacy docs mention "binary representation (for binary files)", but output is always text.
 
 ### `FileTools.appendText(path, ...values)`
 
@@ -455,7 +464,7 @@ Like `writeText`, but appends.
 
 | Property | Id/enum | JS type | R/W | Applies to / conditions | Value source | Notes |
 |---|---|---|---|---|---|---|
-| `name` | `DIR_NAME` (`JSDirectory.h:26`, `:28`) | string | R | any | `JS_InternUCString(d->name)` (`JSDirectory.cpp:220-221`) | Interned (pinned for the runtime's lifetime). A missing private → `JS_FALSE` without an exception (`:214-215`), i.e. uncatchable abort. |
+| `name` | `DIR_NAME` = 0 (`JSDirectory.h:26`, `:28`) | string | R | any | `JS_InternUCString(d->name)` (`JSDirectory.cpp:220-221`) | Interned (pinned for the runtime's lifetime). A missing private → `JS_FALSE` without an exception (`:214-215`), i.e. uncatchable abort. |
 
 ### `dopen(name)`
 
@@ -463,10 +472,10 @@ Returns a `Folder` for `scripts\<name>`, **creating the directory if needed**.
 
 - **Native:** `my_openDir` at `JSDirectory.cpp:37`; registered at `JSGlobalFuncs.h:50` (declared arity 1, `JSFUN_STUB_GSOPS`), as a global function.
 - **Arguments / overloads:** `argc != 1` → returns **(unset)** without doing anything (`:38-39`). The argument goes through `JSVAL_TO_STRING` **without a type test** (`:42`); a non-string is undefined behaviour, likely a crash. `isValidPath` failure → `Log("The following path was deemed invalid…")` and **`return JS_FALSE` with no exception** (`:44-47`): an uncatchable abort of the calling script.
-- **Returns:** a new `Folder`. If `_wmkdir` fails with `ENOENT` (missing parent), it throws `"Couldn't get directory <n>, path '<p>' not found"` (UTF-8 converted, `:51-57`).
+- **Returns:** a new `Folder`. If `_wmkdir` fails with `ENOENT` (missing parent), it throws `"Couldn't get directory <n>, path '<p>' not found"` (UTF-8 converted, `:51-57`). If `BuildObject` fails, the result is `null` and the `DirData` leaks, because the result is not checked (`:59-61`).
 - **Preconditions:** either.
 - **Threading & blocking:** synchronous `_wmkdir`.
-- **Side effects:** **creates the directory** (one level only) if it doesn't exist. `EEXIST` and other errors are ignored, and the `Folder` is returned anyway (`:58-61`).
+- **Side effects:** **creates the directory** (one level only) if it doesn't exist. `EEXIST` and other errors are ignored, and the `Folder` is returned anyway (`:58-61`). That includes the case where `name` is an existing *file*.
 - **Game internals:** none.
 - **Quirks / bugs:** a path over `_MAX_PATH` overflows `swprintf_s` and the CRT handler terminates the process (`:49`). `dopen("")` refers to the script root itself.
 
@@ -476,7 +485,7 @@ Creates a sub-directory.
 
 - **Native:** `dir_create` at `JSDirectory.cpp:170`; registered at `JSDirectory.h:31` (declared arity 1, `JSFUN_STUB_GSOPS`).
 - **Arguments / overloads:** `argv[0]` must be a string (`"No path passed to dir.create()"`, `:173-174`; argc unchecked). `isValidPath` failure → **`JS_FALSE` with no exception** (`:177-179`).
-- **Returns:** a new `Folder`. `ENOENT` → throws `"Couldn't create directory %s, path %s not found"`, but with **wide strings passed to `%s`**, so only the first character of each shows (`:182-184`).
+- **Returns:** a new `Folder`. `ENOENT` → throws `"Couldn't create directory %s, path %s not found"`, but with **wide strings passed to `%s`**, so only the first character of each shows (`:182-184`). Any other `_wmkdir` error, including `EEXIST`, is ignored and a `Folder` is returned (`:185-189`). The `BuildObject` result is unchecked (`null` on failure).
 - **Preconditions:** either.
 - **Threading & blocking:** synchronous.
 - **Side effects:** `_wmkdir(szScriptPath\<this.name>\<name>)` (`:181-182`).
@@ -494,14 +503,14 @@ Removes the (empty) directory.
 - **Threading & blocking:** synchronous `_wrmdir`.
 - **Side effects:** deletes the directory.
 - **Game internals:** none.
-- **Quirks / bugs:** no NULL check on the private (`:194`). Not recursive.
+- **Quirks / bugs:** no NULL or class check on the private (`:194`, `:197`). Not recursive. `dopen("")` names the script root, so `dopen("").remove()` removes the root folder itself if it's empty.
 
 ### `Folder.prototype.getFiles([pattern])`
 
 Lists file names (not sub-directories) matching a wildcard.
 
 - **Native:** `dir_getFiles` at `JSDirectory.cpp:74`; registered at `JSDirectory.h:32` (declared arity 1, `JSFUN_STUB_GSOPS`).
-- **Arguments / overloads:** `argc > 1` → **`JS_FALSE` with no exception** (`:75-76`). With no argument it **writes** `"*.*"` into `argv[0]` (past `argc`, `:77-78`). The pattern is `JS_ValueToString`-coerced (`:81`; NULL → throws `"Failed to get search string"`). The pattern is **not validated** ([path-check matrix](#which-api-uses-which-check)).
+- **Arguments / overloads:** `argc > 1` → **`JS_FALSE` with no exception** (`:75-76`). With no argument it **writes** `"*.*"` into `argv[0]` (past `argc`, `:77-78`). The pattern is `JS_ValueToString`-coerced (`:81`), which runs a user `toString` for objects. That result goes straight into `JS_GetStringCharsZ`, so a NULL (conversion threw) is dereferenced. `"Failed to get search string"` (`:82-83`) fires only if `JS_GetStringCharsZ` itself returns NULL. The pattern is **not validated** ([path-check matrix](#which-api-uses-which-check)). The private comes from the unchecked `JS_GetPrivate` (`:80`) and is dereferenced at `:87`: a prototype `this` crashes.
 - **Returns:** an array of bare names, in `_wfindfirst`/`_wfindnext` order, `_A_SUBDIR` entries skipped (`:99-112`). An empty array if nothing matches.
 - **Preconditions:** either.
 - **Threading & blocking:** synchronous. **Changes the process-wide current directory** with `_wchdir(folder)` and restores it afterwards (`:89-96`, `:114-117`). This races with every other thread in Game.exe (other scripts, the game itself) that uses relative paths. Failure to get or set the CWD → `Log(...)` + **`JS_FALSE` with no exception**.
@@ -533,6 +542,7 @@ Embedded SQLite **3.8.8** (`sqlite3.h:108`), compiled into the DLL (`D2BS.vcxpro
 - **Private data:** `SqliteDB { sqlite3* db; bool open; wchar_t* path; std::set<DBStmt*> stmts; }` (`JSSQLite.cpp:30-35`). `path` is the full sandboxed path, or the raw `:`-prefixed name. `stmts` holds raw pointers to every statement created by `query`.
 - **Finalizer:** `sqlite_finalize` (`JSSQLite.cpp:280-288`) clears the private, calls `clean_sqlite_db` (finalizes every listed statement and `sqlite3_close`s the connection when `open`, `:47-57`), then frees `path` and the struct.
 - **Identity & lifetime:** one connection per object. Statements do **not** keep their database object alive, and nothing stops the database being finalized while its statements are still referenced (see [DBStatement](#dbstatement)). `open` is never reset to `false` (see `close`). The equality hook `sqlite_equal` is commented out (`JSSQLite.cpp:290-305`).
+- **Error messages are format strings:** every SQLite error is raised with `THROW_ERROR(cx, text)`, i.e. `JS_ReportError(cx, text)` with the text as the *format* (`js32.h:113-117`). That holds for the raw `sqlite3_errmsg` (`JSSQLite.cpp:162`, `:442`, `:500`, `:525`, `:535`) and for messages built around it (`:109-110`, `:141-144`, `:223-224`, `:235-236`). An error text containing `%`, such as SQLite's `near "%": syntax error` for user SQL, is read as a printf directive: garbage output or a bad varargs read.
 
 ### SQLite properties
 
@@ -540,11 +550,11 @@ Getter `sqlite_getProperty` (`JSSQLite.cpp:243`). There is **no NULL check** on 
 
 | Property | Id/enum | JS type | R/W | Applies to / conditions | Value source | Notes |
 |---|---|---|---|---|---|---|
-| `path` | `SQLITE_PATH` (`JSSQLite.h:42`) | string | R | any | `dbobj->path` (`:249-251`) | Full path (`<root>\name`) or `:memory:` etc. |
-| `statements` | `SQLITE_STMTS` (`JSSQLite.h:43`) | array of `DBStatement` | R | any | **new wrapper objects** around each `DBStmt*` in `stmts` whose `open` is set (`:258-271`) | Array length = `stmts.size()`, with holes (`undefined`) for closed statements. Each read makes a *second* wrapper sharing the same `DBStmt*`; when both are finalized, the struct is **freed twice** ([DBStatement](#dbstatement)). |
-| `isOpen` | `SQLITE_OPEN` (`JSSQLite.h:44`) | boolean | R | any | `dbobj->open` (`:252-254`) | `true` after auto-open. Never set by `open()`, never cleared by `close()`. |
-| `lastRowId` | `SQLITE_LASTROWID` (`JSSQLite.h:45`) | number | R | open | `sqlite3_last_insert_rowid` → `setInt32` (`:255-257`) | **Truncated to int32.** |
-| `changes` | `SQLITE_CHANGES` (`JSSQLite.h:46`) | number | R | open | `sqlite3_changes` → `setDouble` (`:272-275`) | Rows changed by the last statement. |
+| `path` | `SQLITE_PATH` = 0 (`JSSQLite.h:42`) | string | R | any | `dbobj->path` (`:249-251`) | Full path (`<root>\name`) or `:memory:` etc. |
+| `statements` | `SQLITE_STMTS` = 1 (`JSSQLite.h:43`) | array of `DBStatement` | R | any | **new wrapper objects** around each `DBStmt*` in `stmts` whose `open` is set (`:258-271`) | Array length = `stmts.size()`, with holes (`undefined`) for closed statements. Each read makes a *second* wrapper sharing the same `DBStmt*`; when both are finalized, the struct is **freed twice** ([DBStatement](#dbstatement)). |
+| `isOpen` | `SQLITE_OPEN` = 2 (`JSSQLite.h:44`) | boolean | R | any | `dbobj->open` (`:252-254`) | `true` after auto-open. Never set by `open()`, never cleared by `close()`. |
+| `lastRowId` | `SQLITE_LASTROWID` = 3 (`JSSQLite.h:45`) | number | R | open | `sqlite3_last_insert_rowid` → `setInt32` (`:255-257`) | **Truncated to int32.** With `db == NULL` (constructed with `autoOpen = false`) this dereferences NULL: this build has no `SQLITE_ENABLE_API_ARMOR` (`sqlite3.c:127199-127207`). After `close()` it reads the freed handle. |
+| `changes` | `SQLITE_CHANGES` = 4 (`JSSQLite.h:46`) | number | R | open | `sqlite3_changes` → `setDouble` (`:272-275`) | Rows changed by the last statement. Same NULL/freed-handle crash as `lastRowId` (`sqlite3.c:127212-127220`). |
 
 ### `SQLite([path[, autoOpen]])`
 
@@ -557,16 +567,16 @@ Creates a database object and opens it by default.
 - **Threading & blocking:** `sqlite3_open16` synchronously on the script thread.
 - **Side effects:** creates the database file if absent.
 - **Game internals:** none.
-- **Quirks / bugs:** `path` leaks on the `isValidPath` and open-failure paths, and so does the handle that `sqlite3_open16` allocates on failure. A `:`-prefixed name bypasses the sandbox ([path-check matrix](#which-api-uses-which-check)).
+- **Quirks / bugs:** `path` leaks on the `isValidPath` and open-failure paths, and so does the handle that `sqlite3_open16` allocates on failure. A `:`-prefixed name bypasses the sandbox ([path-check matrix](#which-api-uses-which-check)). If `BuildObject` fails, it closes the handle and throws `"Could not create the sqlite object"` (`:119-125`). The open-failure message embeds `sqlite3_errmsg` in a format string ([SQLite](#sqlite) class notes).
 
 ### `SQLite.prototype.execute(sql)`
 
-Runs one or more SQL statements with no result rows.
+Runs one or more SQL statements; result rows are discarded.
 
 - **Native:** `sqlite_execute` at `JSSQLite.cpp:131`; registered at `JSSQLite.h:39` (declared arity 1, `JSFUN_STUB_GSOPS`).
-- **Arguments / overloads:** exactly one string, else `"Invalid parameters in SQLite.execute"` (`:135-136`). `!open` → `"Database must first be opened!"` (`:133-134`).
-- **Returns:** `true`. On SQL error throws the SQLite message (`sqlite3_exec` error text, `:139-145`).
-- **Preconditions:** either.
+- **Arguments / overloads:** exactly one string, else `"Invalid parameters in SQLite.execute"` (`:135-136`). The `isOpen` test comes first: `!open` → `"Database must first be opened!"` (`:133-134`).
+- **Returns:** `true`. On SQL error throws the SQLite message (`sqlite3_exec` error text, `:139-145`). Every statement in the string runs, up to the first error (`sqlite3_exec` semantics).
+- **Preconditions:** `isOpen` (`:133`); game state irrelevant.
 - **Threading & blocking:** synchronous `sqlite3_exec`; long queries freeze the script.
 - **Side effects:** database writes.
 - **Game internals:** none.
@@ -586,12 +596,12 @@ Prepares a statement and binds positional parameters.
   | int-tagged / double-tagged number | `sqlite3_bind_int` / `sqlite3_bind_double` |
   | boolean | text `"true"` / `"false"` |
   | `null`, object, function | throws `"Invalid bound parameter <i>"` |
-- **Returns:** a new `DBStatement` (not yet stepped; `ready === false`). Prepare errors throw `sqlite3_errmsg`. An empty statement throws `"Statement has no effect"` (`:164-167`).
+- **Returns:** a new `DBStatement` (not yet stepped; `ready === false`). Prepare errors throw `sqlite3_errmsg` (`:160-163`). An empty statement throws `"Statement has no effect"` (`:164-167`). If `BuildObject` fails it throws `"Could not create the sqlite row object"` (`:207-213`).
 - **Preconditions:** `isOpen` (`:153-154`).
 - **Threading & blocking:** synchronous prepare.
 - **Side effects:** adds a `DBStmt` to `stmts` (`:199-205`).
 - **Game internals:** none.
-- **Quirks / bugs:** **bound strings are a use-after-free.** SQLite is told the buffer is static, but it is `JS_free`d straight away, so at `step` time the parameter reads freed memory, and with several string parameters the allocator may hand the same block to the next one. If `BuildObject` fails, the `DBStmt` is deleted while still in `stmts`, leaving a dangling pointer (`:207-213`). There is no named binding here; use `bind`.
+- **Quirks / bugs:** **bound strings are a use-after-free.** SQLite is told the buffer is static, but it is `JS_free`d straight away, so at `step` time the parameter reads freed memory, and with several string parameters the allocator may hand the same block to the next one. If `BuildObject` fails, the `DBStmt` is deleted while still in `stmts`, leaving a dangling pointer (`:207-213`). There is no named binding here; use `bind`. The `sqlite3_bind_*` return codes are ignored, so extra arguments beyond the statement's parameter count (`SQLITE_RANGE`) are dropped silently.
 
 ### `SQLite.prototype.open()`
 
@@ -600,9 +610,9 @@ Opens the connection if `isOpen` is false.
 - **Native:** `sqlite_open` at `JSSQLite.cpp:230`; registered at `JSSQLite.h:40` (declared arity 0, `JSFUN_STUB_GSOPS`).
 - **Arguments / overloads:** none.
 - **Returns:** `true`. Throws `"Could not open database: …"` on failure.
-- **Preconditions:** none.
+- **Preconditions:** none checked; no NULL check on the private (`:231-232`). A no-op returning `true` when `isOpen` is already true.
 - **Threading & blocking:** synchronous.
-- **Side effects:** `sqlite3_open16(path, &db)` (`:232-237`).
+- **Side effects:** `sqlite3_open16(path, &db)` (`:232-237`). It overwrites `db` without closing the previous value; on failure the failed handle is stored there.
 - **Game internals:** none.
 - **Quirks / bugs:** **never sets `dbobj->open = true`**, so after `new SQLite(p, false); db.open()` the database is connected but `isOpen` stays false and `execute`/`query` keep throwing `"Database must first be opened!"`. Each further `open()` leaks a new connection.
 
@@ -615,9 +625,9 @@ Finalizes all statements and closes the connection.
 - **Returns:** `true`. Throws `"Could not close database: …"` if `sqlite3_close` fails (`:221-225`).
 - **Preconditions:** none (a NULL private is tolerated by `clean_sqlite_db`).
 - **Threading & blocking:** synchronous.
-- **Side effects:** `sqlite3_finalize` on every listed statement (sets their `open=false`), then `sqlite3_close`.
+- **Side effects:** only if `isOpen` is true: `sqlite3_finalize` on every listed statement (sets their `stmt = NULL`, `open = false`), **`stmts.clear()`**, then `sqlite3_close` (`clean_sqlite_db`, `:47-57`). The `DBStmt` structs themselves stay owned by their `DBStatement` wrappers.
 - **Game internals:** none.
-- **Quirks / bugs:** **`open` is not cleared and `db` is not nulled** (`:47-57`). `isOpen` still reads `true`, and later `execute`/`query` (or a second `close()`, or the finalizer) use the **closed `sqlite3*`**, which is use-after-free.
+- **Quirks / bugs:** **`open` is not cleared and `db` is not nulled** (`:47-57`). `isOpen` still reads `true`, and later `execute`/`query` (or a second `close()`, or the finalizer) use the **closed `sqlite3*`**, which is use-after-free. Conversely, when `isOpen` is false (after `new SQLite(p, false); db.open()`), `close()` does nothing and returns `true`, so the connection made by `open()` is never closed, not even by the finalizer.
 
 ### `sqlite_version()`
 
@@ -654,11 +664,11 @@ Meant to return `sqlite3_memory_used()`.
 - **Private data:** `DBStmt { sqlite3_stmt* stmt; bool open, canGet; SqliteDB* assoc_db; JSObject* current_row; }` (`JSSQLite.cpp:37-42`). `canGet` is "a row is available". `current_row` caches `getObject()`'s result and is **explicitly rooted** (`JSSQLite.cpp:364`).
 - **Finalizer:** `sqlite_stmt_finalize` (`JSSQLite.cpp:577-589`). If the statement is still open, it erases itself from `assoc_db->stmts` and finalizes the statement; it always `delete`s the struct. It does **not** remove the `current_row` root (commented out, `:583-584`).
 - **Identity & lifetime:** a raw `SqliteDB*` back-pointer with no reference to the database's JS object. Hazards, all from the code above:
-  - `go()` and `SQLite.close()` mark the statement closed but leave it in `stmts`. When the wrapper is later finalized it is deleted **without being erased** (`:581-582`), so `stmts` keeps a dangling pointer that a later `close()`/finalize/`statements` read dereferences.
+  - `go()` marks the statement closed (`open = false`) but leaves it in `stmts`. When the wrapper is later finalized it is deleted **without being erased**, because the erase is guarded by `open` (`:581-582`). `stmts` then keeps a dangling pointer that a later `SQLite.close()`, database finalize or `statements` read dereferences. `SQLite.close()` doesn't cause this: `clean_sqlite_db` empties `stmts` (`:52`).
   - `close()` (`:541-556`) deletes the struct **without erasing it from `stmts`**, with the same result.
   - `statements` creates extra wrappers sharing one `DBStmt*` ([SQLite properties](#sqlite-properties)): **double free** at GC.
-  - A statement whose database object was GC'd keeps `assoc_db` pointing at freed memory; error paths call `sqlite3_errmsg(assoc_db->db)`.
-  - A finalized statement with a live `current_row` root leaves a **root pointing into freed memory**. That happens whenever the script drops the statement after `getObject()` without a later `next()`/`close()` (e.g. breaking out of a `while (s.next())` loop early).
+  - A statement whose database object was GC'd keeps `assoc_db` pointing at freed memory. The database finalizer has already finalized it (`stmt = NULL`), so the next `next()`/`go()`/`skip()` gets `SQLITE_MISUSE` and its error path calls `sqlite3_errmsg(assoc_db->db)` on freed memory.
+  - A finalized statement with a live `current_row` root leaves a **root pointing into freed memory**. That happens whenever the script drops the statement after `getObject()` without a later `next()`/`close()` (e.g. breaking out of a `while (s.next())` loop early), or after `getObject()` followed by `go()`/`reset()`, which don't unroot.
   - After `close()` the private is NULL (`:549`), and **every method and property dereferences NULL** (crash).
 
 ### DBStatement properties
@@ -667,8 +677,8 @@ Getter `sqlite_stmt_getProperty` (`JSSQLite.cpp:558`). No NULL check.
 
 | Property | Id/enum | JS type | R/W | Applies to / conditions | Value source | Notes |
 |---|---|---|---|---|---|---|
-| `sql` | `SQLITE_STMT_SQL` (`JSSQLite.h:61`) | string | R | not closed/finalized | `sqlite3_sql(stmt)`, UTF-8 decoded (`:564-569`) | After `go()` the stmt is NULL, so `sqlite3_sql` returns NULL. `AnsiToUnicode(NULL)` then allocates a zero-length, unterminated buffer (`Helpers.cpp:16-22`), and `JS_NewUCStringCopyZ` over-reads it. |
-| `ready` | `SQLITE_STMT_READY` (`JSSQLite.h:62`) | boolean | R | any | `canGet` (`:570-572`) | `true` only after a `next()`/`skip()` that produced a row. |
+| `sql` | `SQLITE_STMT_SQL` = 0 (`JSSQLite.h:61`) | string | R | not closed/finalized | `sqlite3_sql(stmt)`, UTF-8 decoded (`:564-569`) | After `go()` the stmt is NULL, so `sqlite3_sql` returns NULL. `AnsiToUnicode(NULL)` then allocates a zero-length, unterminated buffer (`Helpers.cpp:16-22`), and `JS_NewUCStringCopyZ` over-reads it. |
+| `ready` | `SQLITE_STMT_READY` = 1 (`JSSQLite.h:62`) | boolean | R | any | `canGet` (`:570-572`) | `true` only after a `next()`/`skip()` that produced a row. |
 
 ### `DBStatement.prototype.next()`
 
@@ -694,7 +704,7 @@ Returns the current row as an object keyed by column name.
 - **Threading & blocking:** synchronous.
 - **Side effects:** roots the new object in `current_row` (`:363-365`).
 - **Game internals:** none.
-- **Quirks / bugs:** **the row object is created with `JS_New(cx, NULL, NULL, NULL)`** (`:325`), i.e. "construct with a NULL constructor". `JS_New` takes the constructor object as its second parameter (`dependencies/include/jsapi.h:3181`), so for any row with ≥1 column this is expected to dereference NULL inside the engine (crash; see Open questions). Use `getColumnValue`/`getColumnName` instead. Duplicate column names overwrite each other.
+- **Quirks / bugs:** column names are UTF-8 `char*` passed to `JS_SetProperty`, so non-ASCII names are mangled ([encodings](#text-encodings-used-on-this-page)). If `JS_AddRoot` fails the call returns **(unset)** (`:364-365`). **The row object is created with `JS_New(cx, NULL, NULL, NULL)`** (`:325`), i.e. "construct with a NULL constructor". `JS_New` takes the constructor object as its second parameter (`dependencies/include/jsapi.h:3181`), so for any row with ≥1 column this is expected to dereference NULL inside the engine (crash; see Open questions). Use `getColumnValue`/`getColumnName` instead. Duplicate column names overwrite each other.
 
 ### `DBStatement.prototype.getColumnCount()`
 
@@ -746,7 +756,7 @@ Executes one step and **finalizes** the statement (for INSERT/UPDATE/DDL).
 - **Threading & blocking:** synchronous step.
 - **Side effects:** `close_db_stmt`: `sqlite3_finalize`, `stmt = NULL`, `open = false` (`:443`, `:59-65`). The entry stays in `stmts`.
 - **Game internals:** none.
-- **Quirks / bugs:** later calls step a NULL statement (`SQLITE_MISUSE` → throws). `current_row` is not unrooted. Causes the dangling-pointer chain described in [DBStatement](#dbstatement).
+- **Quirks / bugs:** later `next()`/`go()`/`skip()` calls step a NULL statement. `sqlite3_step(NULL)` returns `SQLITE_MISUSE` without recording an error on the connection, so the thrown text is whatever error the connection last recorded (`"not an error"` if none). `sql` then over-reads ([DBStatement properties](#dbstatement-properties)), while `reset()` returns `true` (`sqlite3_reset(NULL)` is `SQLITE_OK`). `current_row` is not unrooted. Causes the dangling-pointer chain described in [DBStatement](#dbstatement).
 
 ### `DBStatement.prototype.skip(n)`
 
@@ -822,8 +832,8 @@ Getter `socket_getProperty` (`JSSocket.cpp:26`). `socket_setProperty` (`:65-67`)
 
 | Property | Id/enum | JS type | R/W | Applies to / conditions | Value source | Notes |
 |---|---|---|---|---|---|---|
-| `readable` | `SOCKET_READABLE` (`JSSocket.h:30`) | number | R | any | `select(1, {sock}, NULL, NULL, {0 s, 100 µs})` (`:36-45`) | `1` ready, `0` not, `-1` error. The comment says 100 ms, but `tv_usec = 100` is **0.1 ms**. Readable also means "peer closed". |
-| `writeable` | `SOCKET_WRITEABLE` (`JSSocket.h:31`) | number | R | any | same with the write set (`:47-58`) | |
+| `readable` | `SOCKET_READABLE` = 0 (`JSSocket.h:30`) | number | R | any | `select(1, {sock}, NULL, NULL, {0 s, 100 µs})` (`:36-45`) | `1` ready, `0` not, `-1` error. The comment says 100 ms, but `tv_usec = 100` is **0.1 ms**. Readable also means "peer closed". |
+| `writeable` | `SOCKET_WRITEABLE` = 1 (`JSSocket.h:31`) | number | R | any | same with the write set (`:47-58`) | |
 
 Both getters call `JS_BeginRequest` without ever calling `JS_EndRequest` (`:32`), so the request depth grows on each read.
 
@@ -838,7 +848,7 @@ Resolves `host` and connects a TCP socket.
 - **Threading & blocking:** **blocking `gethostbyname` (DNS) and blocking `connect`** (no timeout, so the OS default applies) on the script thread.
 - **Side effects:** `WSAStartup(2.2)`; `socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)`; outbound TCP connection.
 - **Game internals:** none.
-- **Quirks / bugs:** on the "Invalid hostname" path `hostName` leaks. On the DNS and connect failure paths, `SocketData`, the socket and a `WSAStartup` reference leak. The `socket()` result is not checked. Only the first IPv4 address is used.
+- **Quirks / bugs:** on the "Invalid hostname", port-conversion and `WSAStartup`-failure paths `hostName` leaks. On the DNS and connect failure paths, `SocketData`, the socket and a `WSAStartup` reference leak. The `socket()` result is not checked. Only the first IPv4 address is used.
 
 ### `Socket.prototype.send(text)`
 
@@ -851,7 +861,7 @@ Sends a string as UTF-8.
 - **Threading & blocking:** blocking `send` (may block while the TCP send buffer is full).
 - **Side effects:** network write without a terminator. Partial sends are not retried.
 - **Game internals:** none.
-- **Quirks / bugs:** the UTF-8 buffer is never `JS_free`d (a leak per call). No NULL check on the private.
+- **Quirks / bugs:** the UTF-8 buffer is never `JS_free`d (a leak per call). No NULL check on the private. The length is `strlen(msg)`, so text containing U+0000 is cut at the first NUL. The API is text-only, not binary-safe.
 
 ### `Socket.prototype.read()`
 
@@ -889,7 +899,7 @@ Engine-level analysis (context/compartment problems, rooting) is in [embedding.m
 - **Constructor:** real (`sandbox_ctor`, `JSSandbox.cpp:6`), but **its first statement is `JS_NewContext(ScriptEngine::GetRuntime(), 0x2000)` (`:8`), and `ScriptEngine::runtime` is never assigned a non-NULL value** (initialised `NULL` at `ScriptEngine.cpp:19`; the only other write is `runtime = NULL` at `:159`; getter at `ScriptEngine.h:55-57`). Constructing a `Sandbox` therefore passes a NULL runtime into SpiderMonkey, which is expected to crash Game.exe (see Open questions). The rest of this section describes what the code *would* do.
 - **Private data:** `struct sandbox { JSContext* context; JSObject* innerObj; IncludeList list; }` (`JSSandbox.h:20-24`). The inner global is `JS_NewObject(box->context, &global_obj, ...)` with standard classes only and **no D2BS globals** (`JSSandbox.cpp:13-24`). It is never rooted.
 - **Finalizer:** `JS_DestroyContext(box->context); delete box` (`JSSandbox.cpp:164-171`), destroying a context from inside GC.
-- **Identity & lifetime / property hooks:** reads, writes, adds and deletes of non-method properties on the wrapper are forwarded **by name** to `innerObj` through `box->context` (`JSSandbox.cpp:48-162`). Integer ids are stringified. Values are copied raw between contexts, with no wrapping. A get returns the inner value, or `undefined` when the inner object lacks the name: the outer lookup runs only when there is no box. Several hook paths return `JS_FALSE` without an exception (uncatchable abort): add with a non-int/string id (`:80`), and del/get/set with no box or when the inner call fails (`:104`, `:136`, `:161`). Methods are unaffected (`JSFUN_STUB_GSOPS`).
+- **Identity & lifetime / property hooks:** reads, writes, adds and deletes of non-method properties on the wrapper are forwarded **by name** to `innerObj` through `box->context` (`JSSandbox.cpp:48-162`). Integer ids are stringified. Values are copied raw between contexts, with no wrapping. A get returns the inner value, or `undefined` when the inner object lacks the name. The fallback lookup on the wrapper itself (`:121`, `:130`) runs only when there is no box or the inner lookup fails. With no box (e.g. on `Sandbox.prototype`), add defines the property on the object itself (`:50-51`). Several hook paths return `JS_FALSE` without an exception, an uncatchable abort: add with a non-int/string id (`:80`); delete and set with no box or when the inner call fails (`:104`, `:161`); get only when the fallback lookup also fails (`:136`). Names cross as UTF-8 `char*`, so non-ASCII names are mangled ([encodings](#text-encodings-used-on-this-page)). Methods are unaffected (`JSFUN_STUB_GSOPS`).
 - **Properties:** none defined; arbitrary names are proxied as above.
 
 ### `Sandbox()`
@@ -923,7 +933,7 @@ Evaluates source text in the inner global.
 Intended to run `<root>\libs\<file>` in the inner global.
 
 - **Native:** `sandbox_include` at `JSSandbox.cpp:188`; registered at `JSSandbox.h:26` (declared arity 1, `JSFUN_STUB_GSOPS`).
-- **Arguments / overloads:** a string, else `"Invalid parameter, file expected"` (`:210-211`). The length must be ≤ `_MAX_FNAME` (`:193`). There is no path validation.
+- **Arguments / overloads:** a string, else `"Invalid parameter, file expected"` (`:210-211`). The length must be ≤ `_MAX_FNAME` (`:193`); a longer name, or a missing private, silently returns `false`. There is no path validation.
 - **Returns:** `false` (preset, `:189`). The guard `box->list.count(file) == -1` (`:196`) compares an unsigned `0`/`1` with `-1` and is never true, so **nothing is ever compiled or executed**.
 - **Preconditions:** n/a.
 - **Threading & blocking:** none in practice.
@@ -942,7 +952,7 @@ Reports whether `include` recorded the file.
 - **Threading & blocking:** none.
 - **Side effects:** none.
 - **Game internals:** none.
-- **Quirks / bugs:** legacy name `isInclude` (`doc/Sandbox.h:32`).
+- **Quirks / bugs:** legacy name `isInclude` (`doc/Sandbox.h:32`). Unlike `include`, there's no length check before `swprintf_s` into a 516-wchar buffer (`:220-221`), so a long `file` hits the CRT invalid-parameter handler (process exit).
 
 ### `Sandbox.prototype.clearScope()`
 
@@ -976,11 +986,11 @@ Getter `script_getProperty` (`JSScript.cpp:18`). A missing private returns `unde
 
 | Property | Id/enum | JS type | R/W | Applies to / conditions | Value source | Notes |
 |---|---|---|---|---|---|---|
-| `name` | `SCRIPT_FILENAME` (`JSScript.h:29`) | string | R | any | `JS_InternUCString(Script::GetShortFilename())` (`:29-31`; `Script.cpp:244-249`) | Lower-cased path relative to the root, with `\`. `"Command Line"` for a file-less console. The offset is computed from the *current* `wcslen(szScriptPath)`, so it is wrong (or overruns) after a profile switch changes the root length. |
-| `type` | `SCRIPT_GAMETYPE` (`JSScript.h:30`) | **boolean** | R | any | `GetState() == InGame ? false : true` (`:32-34`) | `false` = in-game, `true` = out-of-game or console. Legacy says int 0/1. |
-| `running` | `SCRIPT_RUNNING` (`JSScript.h:31`) | boolean | R | any | `Script::IsRunning()` = `context && !(aborted \|\| paused \|\| !hasActiveCX)` (`:35-37`; `Script.cpp:340-342`) | **A paused script reports `false`.** |
-| `threadid` | `SCRIPT_THREADID` (`JSScript.h:32`) | number | R | any | `GetThreadId()` (`:38-40`; `Script.cpp:73-75`) | `-1` if no thread handle. A DWORD stored as int32. |
-| `memory` | `SCRIPT_MEMORY` (`JSScript.h:33`) | number | R | started scripts | `JS_GetGCParameter(script->GetRuntime(), JSGC_BYTES)` (`:41-43`) | Reads another thread's runtime. `Script::runtime` is **not initialised** by the constructor (`Script.cpp:15-17`) and is only set in `Run` (`Script.cpp:120`), so for a script that hasn't started this dereferences garbage. Not in the legacy docs. |
+| `name` | `SCRIPT_FILENAME` = 0 (`JSScript.h:29`) | string | R | any | `JS_InternUCString(Script::GetShortFilename())` (`:29-31`; `Script.cpp:244-249`) | Lower-cased path relative to the root, with `\`. `"Command Line"` for a file-less console. The offset is computed from the *current* `wcslen(szScriptPath)`, so it is wrong (or overruns) after a profile switch changes the root length. |
+| `type` | `SCRIPT_GAMETYPE` = 1 (`JSScript.h:30`) | **boolean** | R | any | `GetState() == InGame ? false : true` (`:32-34`) | `false` = in-game, `true` = out-of-game or console. Legacy says int 0/1. |
+| `running` | `SCRIPT_RUNNING` = 2 (`JSScript.h:31`) | boolean | R | any | `Script::IsRunning()` = `context && !(aborted \|\| paused \|\| !hasActiveCX)` (`:35-37`; `Script.cpp:340-342`) | **A paused script reports `false`.** |
+| `threadid` | `SCRIPT_THREADID` = 3 (`JSScript.h:32`) | number | R | any | `GetThreadId()` (`:38-40`; `Script.cpp:73-75`) | `-1` if no thread handle. A DWORD stored as int32. |
+| `memory` | `SCRIPT_MEMORY` = 4 (`JSScript.h:33`) | number | R | started scripts | `JS_GetGCParameter(script->GetRuntime(), JSGC_BYTES)` (`:41-43`) | Reads another thread's runtime. `Script::runtime` is **not initialised** by the constructor (`Script.cpp:15-17`) and is only set in `Run` (`Script.cpp:120`), so for a script that hasn't started this dereferences garbage. Not in the legacy docs. |
 
 ### `getScript([selector])`
 

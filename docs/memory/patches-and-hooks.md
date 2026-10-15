@@ -127,8 +127,15 @@ void InterceptLocalCode(BYTE bInst, DWORD pAddr, DWORD pFunc, DWORD dwLen) {   /
 (`Offset.h:5`, `Offset.h:7`). `PatchBytes` uses only the
 low byte of `dwFunc`, so `(WORD)0x9090` with length 2 writes `90 90` and `(DWORD)0xc3` writes
 `C3`. With a `CALL` patch the intercept returns to `dwAddr + 5`; the NOP padding then slides
-execution to `dwAddr + dwLen`. An intercept that wants to resume elsewhere pops or ignores that
-return address (see `GameActChange_Intercept`, `Whisper_Intercept`, `GamePacketSent_Interception`).
+execution to `dwAddr + dwLen`. No CALL intercept resumes anywhere else: two of them pop the
+return address into a register and jump back to it instead of returning, because they rebuild the
+stack underneath it (`GameActChange_Intercept` via `EAX`, `Whisper_Intercept` via `EDI`), and
+`GameLeave_Intercept` lets the game function it tail-jumps to return there. A JMP patch pushes
+nothing; its intercept jumps to a label inside the patched function (`GamePacketSent_Interception`
+→ `D2CLIENT_SendPacket_II`, `ClassicSTUB` → `BNCLIENT_DClass`, `LodSTUB` → `BNCLIENT_DLod`),
+returns to the enclosing function's caller (`GameDraw_Intercept`, `PlayerAssignment_Intercept`,
+`GameActChange2_Intercept`), never returns (`ErrorReportLaunch`), or, for the `D2GAME_exit0` entry,
+is a jump to a game address ([§2.6](#26-the-d2game_exit0-static-initialisation-bug)).
 D2BS.dll handler addresses are only known at run time, so the table in [§3](#3-patch-table)
 shows `r32` symbolically.
 
@@ -206,7 +213,7 @@ ignored at run time ([README.md §2](README.md#2-one-image-legacy-module-names))
 | P[17] | `Patch.h:37` | CALL | `0x006091E5` | `0x2091E5` | `D2CMP.dll` | 10 | `GameCrashFix_Intercept` | always | `E8 r32 90 90 90 90 90` | site+5 (5 NOPs) = end of the displaced block | `D2CMP_DeleteCellFile` +0x7795<br>next `D2COMMON_LoadAct` at 0x006194A0 | NULL guard, no handler | `1.14d //006091E5-BASE` |
 | P[18] | `Patch.h:39` | CALL | `0x0044B1AE` | `0x4B1AE` | `D2MCPClient.dll` | 6 | `RealmPacketRecv_Interception` | always | `E8 r32 90` | site+5 (1 NOP) = end of the displaced block | `D2MULTI_PrintChannelText_` +0x36FE<br>next `D2CLIENT_CloseInteract` at 0x0044C6B0 | `RealmPacketRecv` &rarr; `realmpacket`; can block (skips dispatch) | - |
 | P[19] | `Patch.h:41` | CALL | `0x00408CC4` | `0x8CC4` | `Fog.dll` | 6 | `LogMessageBoxA_Intercept` | always | `E8 r32 90` | site+5 (1 NOP) | `D2GAME_exit0` +0x3555<br>next `D2MULTI_ChannelWhisper_I` at 0x004142F0 | stack walk + log, then the real `MessageBoxA` | `Updated 1.14d //00408CC4-BASE` |
-| P[20] | `Patch.h:42` | JMP | `0x004082E0` | `0x82E0` | `Fog.dll` | 6 | `D2GAME_exit0` | always | `E9 21 EC 16 00 90`<br>**target `0x00576F06`** (encoded `DLLOFFSET` value), not `0x0040576F` | never returns (intended target `D2GAME_exit0`) | `D2GAME_exit0` +0x2B71<br>next `D2MULTI_ChannelWhisper_I` at 0x004142F0 | exit path; **wrong target** | `NEW 1.14d //004082E0-BASE` |
+| P[20] | `Patch.h:42` | JMP | `0x004082E0` | `0x82E0` | `Fog.dll` | 6 | `D2GAME_exit0` | always | `E9 21 EC 16 00 90`<br>**target `0x00576F06`** (encoded `DLLOFFSET` value), not `0x0040576F` | no return to the site (JMP); intended target `D2GAME_exit0` | `D2GAME_exit0` +0x2B71<br>next `D2MULTI_ChannelWhisper_I` at 0x004142F0 | exit path; **wrong target** | `NEW 1.14d //004082E0-BASE` |
 | P[21] | `Patch.h:44` | JMP | `0x00401790` | `0x1790` | `Fog.dll` | 6 | `ErrorReportLaunch` | always | `E9 r32 90` | never returns | next `D2GAME_exit0` at 0x0040576F | stack walk + log, `exit(0)` | `NEW 1.14d //00401790-BASE` |
 | C[0] | `Patch.h:48` | JMP | `0x0052366C` | `0x12366C` | `BNCLIENT.DLL` | 5 | `ClassicSTUB` | `Vars.bUseRawCDKey` | `E9 r32` | `BNCLIENT_DClass` (0x00523673) | `BNCLIENT_DecodeAndLoadKeys` +0x19C<br>next `BNCLIENT_DClass` at 0x00523673 | classic CD key from `-d2c` | `Updated 1.14d //0052366C-BASE` |
 | C[1] | `Patch.h:49` | JMP | `0x00523958` | `0x123958` | `BNCLIENT.DLL` | 5 | `LodSTUB` | `Vars.bUseRawCDKey` | `E9 r32` | `BNCLIENT_DLod` (0x0052395D) | `BNCLIENT_DClass` +0x2E5<br>next `BNCLIENT_DLod` at 0x0052395D | LoD CD key from `-d2x` | `Updated 1.14d //00523958-BASE` |
@@ -325,7 +332,7 @@ EBX/ESI/EDI/EBP while clobbering EAX/ECX/EDX and flags.
 
 ### 5.1 `GameInput_Intercept` — in-game chat line
 
-- Patch: CALL 5 at `0x0047C89D` (`Patch.h:9`). Replaces
+- Patch: CALL 5 at `0x0047C89D` (`Patch.h:9`). Overwrites (inferred, [§4](#4-displaced-instructions-and-expected-original-bytes))
   `call D2CLIENT_InputCall_I` (ASMPTR, RVA `0x787B0`, VA `0x004787B0`, `D2Ptrs.h:254`).
 - Entry state: `EBX` = `wchar_t*` line typed into the in-game chat box (the intercept passes
   `EBX` as the `__fastcall` argument, `D2Intercepts.cpp:78`).
@@ -348,27 +355,30 @@ EBX/ESI/EDI/EBP while clobbering EAX/ECX/EDX and flags.
 - Patch: **JMP** 5 at `0x00453B30` (`Patch.h:10`). Nothing of the
   original code is re-executed; `GameDraw_Intercept` is an ordinary `__cdecl` function
   (`D2Intercepts.cpp:71-73`) whose `ret` returns to whoever called the code at the site. The
-  site is 16-byte aligned, consistent with D2BS replacing a whole game function (a no-argument,
-  caller-cleaned one, or the `ret` would unbalance the stack). Which function: not determinable
-  from source.
+  site is 16-byte aligned, consistent with D2BS replacing a whole game function (one that takes
+  no stack arguments or whose caller removes them; otherwise the plain `ret` would unbalance the
+  stack). `EAX`/`ECX`/`EDX` and the flags come back as the C code leaves them. Which function: not
+  determinable from source.
 - Handler: `void GameDraw(void)` (`D2Handlers.cpp:399`). When `Vars.bActive` and in game:
   `FlushPrint()` (queued `print()` output to the console / game chat), `Genhook::DrawAll(IG)`
   (all in-game screenhooks), `DrawLogo()`, `Console::Draw()`. Then a pending
   `takeScreenshot()` (`D2WIN_TakeScreenshot`). Then the **game-loop lock hand-off**: if a
-  script thread is waiting (`Vars.SectionCount`), leave `Vars.cGameLoopSection`, `Sleep(0)`,
-  re-enter it; otherwise `Sleep(10)` (`D2Handlers.cpp:410-418`).
+  script thread is waiting (`Vars.SectionCount`), leave `Vars.cGameLoopSection` (on the first pass,
+  while `Vars.bGameLoopEntered` is still false, only set that flag instead), `Sleep(0)`, enter
+  it; otherwise `Sleep(10)` (`D2Handlers.cpp:410-418`).
 - Feeds: in-game screenhooks, console, `print()`, `takeScreenshot()`, and every JS native that
   takes `AutoCriticalRoom` ([§8](#8-hooks-that-are-not-code-patches)).
 
 ### 5.3 `GamePacketReceived_Intercept` — server → client game packets
 
 - Patch: CALL 5 at `0x0045F802` (`Patch.h:11`).
-  Replaces `call D2NET_ReceivePacket_I` (FUNCPTR, RVA `0x12B920`, VA `0x0052B920`, `D2Ptrs.h:364`).
+  Overwrites (inferred, [§4](#4-displaced-instructions-and-expected-original-bytes)) `call D2NET_ReceivePacket_I` (FUNCPTR, RVA `0x12B920`, VA `0x0052B920`, `D2Ptrs.h:364`).
 - Entry state (inferred from the handler signature): `ECX` = packet bytes, `EDX` = length,
   `[ESP+4]` = the call's one stack argument (declared `int* arg3`, `D2Ptrs.h:364`).
 - Body (`D2Intercepts.cpp:24-43`): `pushad`; `call GamePacketReceived` (`ECX`/`EDX`
-  as at the site); `test eax, eax`; `popad`; if zero → `mov edx, 0`; then `push [esp+4]`;
-  `call D2NET_ReceivePacket_I`; `ret 4`.
+  as at the site); `test eax, eax`; `popad`; if zero → `mov edx, 0`; then
+  `mov eax, [esp+4]; push eax` (so `EAX` is the stack argument, not the site's `EAX`, when the game
+  function runs); `call D2NET_ReceivePacket_I`; `ret 4`.
 - Block semantics: the game call is **always** made; a blocked packet is passed with length 0.
   `ret 4` removes the original stack argument (the callee removed the re-pushed copy), so the
   stack is as after the original `__fastcall` call.
@@ -421,7 +431,7 @@ EBX/ESI/EDI/EBP while clobbering EAX/ECX/EDX and flags.
 ### 5.5 `GetSelectedUnit_Intercept` — click target override
 
 - Patch: CALL 5 at `0x00462D72` (`Patch.h:13`),
-  `+0x72` past `D2CLIENT_ClickMap` (FUNCPTR, RVA `0x62D00`, VA `0x00462D00`, `D2Ptrs.h:95`). Replaces
+  `+0x72` past `D2CLIENT_ClickMap` (FUNCPTR, RVA `0x62D00`, VA `0x00462D00`, `D2Ptrs.h:95`). Overwrites (inferred, [§4](#4-displaced-instructions-and-expected-original-bytes))
   `call D2CLIENT_GetSelectedUnit` (FUNCPTR, RVA `0x67A10`, VA `0x00467A10`, `D2Ptrs.h:70`, `UnitAny* __stdcall ()`).
 - Body: a C function, `UnitAny* GetSelectedUnit_Intercept(void)` (`D2Intercepts.cpp:92-104`).
   No arguments, so `__cdecl` and `__stdcall` are interchangeable here. If `Vars.bClickAction`:
@@ -448,6 +458,14 @@ EBX/ESI/EDI/EBP while clobbering EAX/ECX/EDX and flags.
   3. `pushad`; `ECX = EBX`; `EDX = [EBP+8]`; `call WhisperHandler`; `popad`; `jmp edi`.
 - Hard-coded: `0x674` / `0x678` (the enclosing function's frame size) and the `[EBP+8]` argument
   slot.
+- Register effect: `popad` restores the `EDI` that `pushad` saved, and that is the popped return
+  address. The game code after the site therefore runs with `EDI` = site + 5, not its original
+  `EDI` (which survives only in the stack slot `[ESP]`, as the displaced `push edi` would have
+  left it). Harmless only if that code writes `EDI` before reading it; not determinable from
+  source ([§10](#10-open-questions)).
+- Inference: site − 3 is 16-byte aligned, consistent with a 3-byte `push ebp; mov ebp, esp`
+  prologue right before the displaced `sub esp, 674h`; that prologue is also what makes
+  `[EBP+8]` the function's first stack argument.
 - Handler: `void __fastcall WhisperHandler(char* szAcc, char* szText)` (`D2Handlers.cpp:464`):
   unless `bDontCatchNextMsg` (then it clears it), converts the text and calls `WhisperEvent`.
   The return value of the event is ignored, so `whispermsgblocker` cannot block here.
@@ -462,6 +480,13 @@ EBX/ESI/EDI/EBP while clobbering EAX/ECX/EDX and flags.
   `popad`: these re-create the first two displaced instructions); `pushad`; `sub ecx, 4`;
   `add edx, 4`; `call ChatPacketRecv`; `test eax, eax`; `popad`; if zero → skip; else
   `call edi` (the third displaced instruction); `ret`.
+- Stack note: the re-issued `call edi` runs one return address deeper than the original (the
+  intercept's own return address to site + 5 is still on the stack), so the dispatch target sees
+  the stack unchanged only if it takes no stack arguments, i.e. just `ECX`/`EDX` (inference). The
+  same holds for `call esi` in [§5.16](#516-realmpacketrecv_interception--realm-mcp-packets) and
+  for the re-issued game calls in [§5.1](#51-gameinput_intercept--in-game-chat-line),
+  [§5.12](#512-congratsscreen_intercept-and-the-0x75-byte) and
+  [§5.15](#515-channelinput_intercept--chat-channel-input-line).
 - Handler arguments: `ECX = EBX − 4`, `EDX = [EBP+8] + 4`. `ChatPacketRecv` reads
   `pPacket[1] == 0x0F` and fields at `+4` and `+28` (`D2Handlers.cpp:533-536`),
   which fits a full BNCS message (`FF id len16` header + `SID_CHATEVENT` body); so `EBX`
@@ -477,7 +502,7 @@ EBX/ESI/EDI/EBP while clobbering EAX/ECX/EDX and flags.
 
 ### 5.8 `GameAttack_Intercept` — attack type rewrite
 
-- Patch: CALL 5 at `0x00461704` (`Patch.h:21`). Replaces
+- Patch: CALL 5 at `0x00461704` (`Patch.h:21`). Overwrites (inferred, [§4](#4-displaced-instructions-and-expected-original-bytes))
   `mov eax, [D2CLIENT_MouseY]` (`p_D2CLIENT_MouseY` (VARPTR, RVA `0x3A6AAC`, VA `0x007A6AAC`, `D2Ptrs.h:144`)), re-created at `OldCode:`
   (`D2Intercepts.cpp:158-159`).
 - Entry state: `ESI` = `UnitInteraction*` (`D2Intercepts.cpp:144`;
@@ -488,7 +513,8 @@ EBX/ESI/EDI/EBP while clobbering EAX/ECX/EDX and flags.
   `[ESP_site + 0xC]`, a slot in the game function's frame (commented "bool unit"; operand size not
   written out, see [§10](#10-open-questions)). `OldCode`: `EAX = *p_D2CLIENT_MouseY`; `retn`.
 - Register effects beyond the original: on the non-`-1` path `ECX`/`EDX` are clobbered by
-  `D2CLIENT_GetSelectedUnit` after `popad`.
+  `D2CLIENT_GetSelectedUnit` after `popad`; on every path the flags are those of the intercept's
+  last `cmp`, whereas the displaced `mov` sets none.
 - Handler: `DWORD __fastcall GameAttack(UnitInteraction* pAttack)` (`D2Handlers.cpp:473`): returns
   `-1` unless the target is a monster; for monsters rewrites `dwMoveType`
   `ATTACKTYPE_UNITLEFT` (`0xC5`) → `ATTACKTYPE_SHIFTLEFT` (`0xE5`) and `ATTACKTYPE_RIGHT` (`0x46`)
@@ -501,11 +527,13 @@ EBX/ESI/EDI/EBP while clobbering EAX/ECX/EDX and flags.
 - Patch: **JMP** 5 at `0x0045E4D5` (`Patch.h:14`).
 - Body (`D2Intercepts.cpp:164-173`): `FNOP` (an x87 no-op); `CALL D2CLIENT_AssignPlayer_I`
   (ASMPTR, RVA `0x66200`, VA `0x00466200`, `D2Ptrs.h:250`); `MOV ECX, EAX`; `CALL GamePlayerAssignment`; `RETN`.
-- Inference: the displaced instruction was a tail `jmp D2CLIENT_AssignPlayer_I` (or a `call`
-  followed by `ret`). Because the intercept *calls* it one return address deeper and then
-  `RETN`s for the enclosing function, `AssignPlayer_I` must take register arguments only.
-  `EAX` at the final `RETN` is whatever `GamePlayerAssignment` left, not `AssignPlayer_I`'s
-  result.
+- Inference: the 5 overwritten bytes were either a tail `jmp D2CLIENT_AssignPlayer_I`, or a
+  `call D2CLIENT_AssignPlayer_I` whose following `ret` the intercept re-creates with its `RETN`.
+  In the tail-jump case the intercept's `CALL` runs `AssignPlayer_I` one return address deeper
+  than the original, so it must take register arguments only; in the call-plus-`ret` case the
+  stack depth is the same as in the original. Either way the enclosing function must end with a
+  plain `ret` (no `ret N`) at that point, and `EAX` at the final `RETN` is whatever
+  `GamePlayerAssignment` left, not `AssignPlayer_I`'s result.
 - Handler: `void __fastcall GamePlayerAssignment(UnitAny* pPlayer)` (`D2Handlers.cpp:486`)
   → `PlayerAssignEvent(pPlayer->dwUnitId)` → `playerassign`.
 
@@ -514,11 +542,12 @@ EBX/ESI/EDI/EBP while clobbering EAX/ECX/EDX and flags.
 - Patch: CALL 10 at `0x006091E5` (`Patch.h:37`).
 - Body (`D2Intercepts.cpp:175-184`): `CMP ECX, 0; JE Skip; MOV [ECX+0x10], EDX;
   Skip: MOV DWORD PTR [EAX+0xC], 0; RETN`. Re-creates both displaced stores and skips the first
-  when `ECX` is NULL. No handler, no event.
+  when `ECX` is NULL. The `CMP` leaves flags that the displaced `MOV`s would not have changed.
+  No handler, no event.
 
 ### 5.11 `GameDrawOOG_Intercept` — out-of-game frame
 
-- Patch: CALL 5 at `0x004F9A0D` (`Patch.h:35`). Replaces
+- Patch: CALL 5 at `0x004F9A0D` (`Patch.h:35`). Overwrites (inferred, [§4](#4-displaced-instructions-and-expected-original-bytes))
   `call D2WIN_DrawSprites` (FUNCPTR, RVA `0xF9870`, VA `0x004F9870`, `D2Ptrs.h:437`).
 - Body: C function (`D2Intercepts.cpp:186-188`) → `GameDrawOOG()` (`D2Handlers.cpp:421`):
   `D2WIN_DrawSprites()` first (the displaced call), then in the menu `FlushPrint()`,
@@ -532,7 +561,9 @@ EBX/ESI/EDI/EBP while clobbering EAX/ECX/EDX and flags.
   `PatchBytes` `0x75` at `0x0044EBFB` (`Patch.h:16`, comment "Congrats Screen").
 - Body (`D2Intercepts.cpp:190-199`): `call D2CLIENT_CongratsScreen_I`
   (ASMPTR, RVA `0xF6190`, VA `0x004F6190`, `D2Ptrs.h:266`, the displaced call) first, then `pushad; call SetMaxDiff;
-  popad; retn` (`EAX` from the game call is preserved).
+  popad; retn` (`EAX` from the game call is preserved). The re-issued call runs one return
+  address deeper than the original, so `CongratsScreen_I` must not read stack arguments
+  (inference).
 - Handler: `void SetMaxDiff(void)` (`D2Handlers.cpp:436`): if `D2CLIENT_GetDifficulty() == 1` and
   `*p_D2CLIENT_ExpCharFlag` is non-zero, sets `(*p_D2LAUNCH_BnData)->nMaxDiff = 10`.
 - The one-byte patch's original value is not recorded; if the byte is a short-`Jcc` opcode,
@@ -552,13 +583,15 @@ EBX/ESI/EDI/EBP while clobbering EAX/ECX/EDX and flags.
   it is reset in `Startup()` (`D2BS.cpp:126`) and used nowhere else.
 - Side effects: `EAX` = site + 5 on return. Two of the five displaced bytes are not re-created;
   the intercept's `CMP` replaces whatever flag-setting instruction was there (inference).
-- Net effect: the branch after `0x004547B6` is taken as "flag set" once after
-  each return through `0x004567EB`. The game-level meaning is not
+- Net effect: the first pass through `0x004547B6` after any pass through
+  `0x004567EB` continues with `ZF` = 0 and clears the flag; every other pass
+  continues with `ZF` = 1. Whatever condition the overwritten instruction tested is no longer
+  evaluated. The game-level meaning is not
   determinable from source. No JS event.
 
 ### 5.14 `GameLeave_Intercept` — leaving a game
 
-- Patch: CALL 5 at `0x0044F57C` (`Patch.h:20`). Replaces
+- Patch: CALL 5 at `0x0044F57C` (`Patch.h:20`). Overwrites (inferred, [§4](#4-displaced-instructions-and-expected-original-bytes))
   `call D2CLIENT_GameLeave_I` (ASMPTR, RVA `0x81830`, VA `0x00481830`, `D2Ptrs.h:264`).
 - Body (`D2Intercepts.cpp:223-229`): `call GameLeave` then `jmp D2CLIENT_GameLeave_I`. The jump
   leaves the original return address on the stack, so `GameLeave_I` returns straight to site + 5
@@ -571,7 +604,7 @@ EBX/ESI/EDI/EBP while clobbering EAX/ECX/EDX and flags.
 
 ### 5.15 `ChannelInput_Intercept` — chat-channel input line
 
-- Patch: CALL 5 at `0x00442A61` (`Patch.h:29`). Replaces
+- Patch: CALL 5 at `0x00442A61` (`Patch.h:29`). Overwrites (inferred, [§4](#4-displaced-instructions-and-expected-original-bytes))
   `call D2MULTI_ChannelInput_I` (ASMPTR, RVA `0x428D0`, VA `0x004428D0`, `D2Ptrs.h:404`).
 - Entry state: `ESI` = `wchar_t*` line typed into the Battle.net channel box.
 - Body (`D2Intercepts.cpp:231-247`): `push ecx`; `ECX = ESI`; `call ChannelInput`;
@@ -591,7 +624,10 @@ EBX/ESI/EDI/EBP while clobbering EAX/ECX/EDX and flags.
   else `call esi`; `ret`. `jz block` names the label `Block:` in a different case; MSVC inline
   asm labels are not case-sensitive, so both go to `Block:`.
 - Inference: the displaced bytes were `test esi,esi; jz short +2; call esi`, i.e. "if a handler
-  pointer exists, call it", with `ECX`/`EDX` = packet and length.
+  pointer exists, call it", with `ECX`/`EDX` = packet and length. The re-issued `call esi` is one
+  return address deeper than the original (stack note in
+  [§5.7](#57-chatpacketrecv_interception--battlenet-chat-packets)). On the skip and block paths
+  `EAX` is the site's `EAX` (restored by `popad`), not a handler result.
 - Handler: `BOOL __fastcall RealmPacketRecv(BYTE* pPacket, DWORD dwSize)` (`D2Handlers.cpp:526`)
   = `!RealmPacketEvent(...)`: block (skip `call esi`) when a `realmpacket` listener returns `true`.
 
@@ -723,7 +759,7 @@ can veto. JS-side semantics: [../js-api/events.md](../js-api/events.md).
 |---|---|---|
 | Fan-out | `ScriptEngine::ForEachScript` `ScriptEngine.cpp:204` | calls the callback for every script; returns `true` if any callback returned `true` (`ScriptEngine.cpp:223`) |
 | Packet events (`gamepacket`, `gamepacketsent`, `realmpacket`) | `PacketEventCallback` `Events.cpp:293` | copies the packet; runs the listener inline if the hook fires on the script's own thread, otherwise queues the event, releases the game-loop lock (`ReleaseGameLock`, `Events.cpp:347`), waits up to **500 ms** on `Vars.eventSignal`, retakes the lock. Timeout = not blocked. |
-| Chat blockers (`chatmsgblocker`, `chatinputblocker`, `whispermsgblocker`) | `ChatEventCallback` `Events.cpp:173` | non-blocking `<name>` event, then `<name>blocker` with a **500 ms** wait (`Events.cpp:200`) |
+| Chat blockers (`chatmsgblocker`, `chatinputblocker`, `whispermsgblocker`) | `ChatEventCallback` `Events.cpp:173` | non-blocking `<name>` event, then `<name>blocker` with a **500 ms** wait (`Events.cpp:200`); unlike packet events the game-loop lock is **not** released while waiting |
 | Key blockers (Win32 keyboard hook, not a patch) | `KeyEventCallback` `Events.cpp:42` | `keydownblocker` / `keyupblocker`, **1000 ms** wait (`Events.cpp:66`). `ExecScriptEvent` has a branch for `keydownblocker` but not for `keyupblocker` (`ScriptEngine.cpp:634`), so nothing signals a `keyupblocker` wait: it always runs into the timeout and never blocks |
 | Listener result | `ExecScriptEvent` packet branch `ScriptEngine.cpp:738` | `block \|= (rval is boolean true)` across the script's listeners, stored in `arg4`, then `SetEvent(Vars.eventSignal)` |
 
@@ -732,6 +768,13 @@ can veto. JS-side semantics: [../js-api/events.md](../js-api/events.md).
   thread that hit the hook, so a slow script stalls the game thread for up to the timeout per
   listening script. `PacketEventCallback` keeps its wait result in a function-`static`
   (`Events.cpp:311`), shared by all threads.
+- Because the event is manual-reset and shared, any `SetEvent` releases every thread waiting at
+  that moment, and a listener that finishes after its caller timed out still sets it. A waiter
+  released early reads its own `arg4` (still `false`, so "not blocked") and frees its `Event`
+  while that event is still queued for the script thread, which later dereferences the freed
+  object in `ExecScriptEvent` (use-after-free). Screen-hook click handlers signal the same event
+  (`ScriptEngine.cpp:660`). A waiter that times out
+  returns without freeing its `Event` (leak).
 - Which hooks honour a veto: `GameInput`, `ChannelInput`, `GamePacketReceived` (including the
   in-game `0x26` chat), `GamePacketSent`, `RealmPacketRecv`. `WhisperHandler` and
   `ChatPacketRecv` ignore the event result.
@@ -785,7 +828,7 @@ in `Shutdown()`.
 | Hook | Installed | Handler | Feeds |
 |---|---|---|---|
 | Window procedure subclass (`SetWindowLong(GWL_WNDPROC)`) | `Helpers.cpp:176` | `GameEventHandler` `D2Handlers.cpp:176` | `WM_COPYDATA`: `dwData` `0x1337` runs a script command, `0x31337` switches profile, anything else → `copydata` event; all other messages go to the original WNDPROC |
-| Timer, 0 ms (`SetTimer`) | `Helpers.cpp:180` | `TimerProc` `D2Handlers.cpp:493` | records `Vars.dwGameThreadId`; releases and re-takes `Vars.cGameLoopSection` (sleeps 5 ms in between if a script is waiting) |
+| Timer, 0 ms (`SetTimer`) | `Helpers.cpp:180` | `TimerProc` `D2Handlers.cpp:493` | first call (while `Vars.bGameLoopEntered` is false): sets that flag, records `Vars.dwGameThreadId` and enters `Vars.cGameLoopSection`; later calls release and re-take it, sleeping 5 ms in between if a script is waiting. Windows raises a 0 ms `SetTimer` interval to `USER_TIMER_MINIMUM` (10 ms) |
 | `WH_KEYBOARD` on the window's thread | `Helpers.cpp:185` | `KeyPress` `D2Handlers.cpp:206` | console keys, `keyup`/`keydown`(+blocker) events; `Vars.bBlockKeys` swallows input |
 | `WH_MOUSE` on the window's thread | `Helpers.cpp:187` | `MouseMove` `D2Handlers.cpp:296` | `mouseclick`, `mousemove`, screenhook click handlers; `Vars.bBlockMouse` |
 | Unhandled-exception filter | `D2BS.cpp:93` | `ExceptionHandler` `Helpers.cpp:396` | crash log (registers, stack walk) |
@@ -796,7 +839,13 @@ releases it only inside `GameDraw` (when `Vars.SectionCount > 0`) and `TimerProc
 that call game functions take it through `AutoCriticalRoom` (`CriticalSections.h:31-55`), which increments
 `Vars.SectionCount` while waiting. `PacketEventCallback` releases the lock while it waits for a
 script ([§6.2](#62-blocking-and-timeouts)), so a script can call game code from inside a packet
-handler. Which JS natives take the lock: [call-stubs.md §7](call-stubs.md#7-thread-and-lock-context).
+handler, but only when the hook runs on the thread recorded in `Vars.dwGameThreadId`
+(`ReleaseGameLock`, `Events.cpp:347`). That id is written only by the first `TimerProc` call
+(`D2Handlers.cpp:498`); if `GameDraw` takes the
+first-entry branch first (`D2Handlers.cpp:414`), the id stays 0 and the
+lock is never released for a packet wait. Chat and key blocker waits never release it, so when
+the waiting thread is the lock owner, a blocker listener that calls a locking JS native stalls
+until the wait times out. Which JS natives take the lock: [call-stubs.md §7](call-stubs.md#7-thread-and-lock-context).
 
 ## 9. Notes for replacing the JS layer with RPC
 
@@ -808,7 +857,8 @@ handler. Which JS natives take the lock: [call-stubs.md §7](call-stubs.md#7-thr
   (filters pushed to the DLL) or a bounded round-trip with a default, as today (500 ms /
   1000 ms timeouts, [§6.2](#62-blocking-and-timeouts)).
 - Blocking is implemented differently per hook: received/sent game packets are not dropped but
-  passed on with length 0; input lines and realm/chat dispatch skip the game call. Some handlers
+  passed on with length 0; input lines and realm dispatch skip the game call (the chat-packet
+  intercept could skip `call edi` too, but `ChatPacketRecv` never asks it to). Some handlers
   edit packets in place (`0x15`) or act on their own (`0xAE` kills the process, `0xA7` with
   state 102 is always blocked, `QuitOnHostile` exits the game).
 - Game calls made from outside the game thread need the game-loop lock hand-off that
@@ -846,3 +896,8 @@ handler. Which JS natives take the lock: [call-stubs.md §7](call-stubs.md#7-thr
   `PAGE_READWRITE` window in `WriteBytes` can crash a game thread).
 - **Packet thread**: which game thread runs the packet intercepts (decides whether
   `PacketEventCallback`'s `ReleaseGameLock` path is taken).
+- **`EDI` after `Whisper_Intercept`**: does the code after `0x00448813` + 7 read `EDI`
+  before writing it? The intercept leaves `EDI` = site + 5 ([§5.6](#56-whisper_intercept--channel-whisper-text)).
+- **Stack arguments of re-issued calls**: do `D2CLIENT_InputCall_I`, `D2CLIENT_CongratsScreen_I`,
+  `D2MULTI_ChannelInput_I` and the `call esi` / `call edi` dispatch targets read stack
+  arguments? Each runs one return address deeper than the original call.
