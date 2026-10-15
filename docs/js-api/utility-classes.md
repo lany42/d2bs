@@ -51,7 +51,7 @@ Mechanics:
 ### Threading model (all classes)
 
 - Every native runs on the **calling script's own thread**, inside that script's single-threaded `JSRuntime` (`Script.cpp:120-125`). See [embedding.md §7.4](../spidermonkey/embedding.md#74-requests-and-the-single-thread-runtime-rule).
-- No native on this page takes the game lock (`AutoCriticalRoom`) or reads game state. A grep of the eight source files finds only `Vars.cFileSection` (`JSFileTools.cpp:192`, `:221`), `Vars.cEventSection` (`JSScript.cpp:124`) and the script-list lock (`ScriptEngine::LockScriptList`, `JSScript.cpp:54`, `:113`, `:170`, `:195`).
+- No native on this page takes the game lock (`AutoCriticalRoom`) or reads game state. A grep of the eight source files finds only `Vars.cFileSection` (`JSFileTools.cpp:192`, `:221`), `Vars.cEventSection` (`JSScript.cpp:124`) and the script-list lock (`ScriptEngine::LockScriptList`, `JSScript.cpp:54`, `:113`, `:170`, `:195`). Indirectly, `getScript` takes the list lock through `ForEachScript` (`ScriptEngine.cpp:210`), and `D2BSScript.stop()`/`join()` take the target's `Script::lock` (`Script.cpp:255`, `:225`).
 - A native that blocks (disk, `connect`, `recv`, `WaitForSingleObject`) freezes its script completely. Queued events (including `scriptmsg`) are only drained in `delay()` and in the operation callback (`JSCore.cpp:140-150`, `ScriptEngine.cpp:315-323`). `Script::Stop` cannot interrupt native code either: it sets `isAborted`, triggers the operation callback, and waits at most 500 ms for `hasActiveCX` to drop (`Script.cpp:251-280`). The script ends only when control returns to the interpreter.
 - Finalizers run on the owning script thread, during GC (`JS_GC` in `delay()` once the heap has grown 0.5 MiB, `JSCore.cpp:152-156`; `JS_MaybeGC` while paused, `ScriptEngine.cpp:310`; engine-scheduled GC) and during `JS_DestroyRuntime` in `~Script` (`Script.cpp:53-55`). GC timing is unpredictable, so **relying on finalizers to close handles leaves them open indefinitely**.
 
@@ -194,7 +194,7 @@ Opens a file under the script root and returns a new `File`.
 - **Returns:** a `File` object. On failure throws: [`fileOpenRelScript`](#c-helper-fileopenrelscript-filecpp188) messages, or `"Failed to define the file object"` if `BuildObject` fails (`:219-228`). The `"Couldn't allocate memory…"` branch (`:201-204`) can't fire, because `new` throws rather than returning NULL.
 - **Preconditions:** either in or out of game; no game-state check.
 - **Threading & blocking:** synchronous `_wfopen_s` on the script thread. No D2BS locks; `_lock_file` if `lockFile`.
-- **Side effects:** creates or truncates the file on disk (modes 1/2), and holds a non-shareable OS handle ([fileOpenRelScript](#c-helper-fileopenrelscript-filecpp188)) until `close()` or finalization.
+- **Side effects:** creates or truncates the file on disk (modes 1/2), and holds an OS handle with `_SH_SECURE` sharing ([fileOpenRelScript](#c-helper-fileopenrelscript-filecpp188)) until `close()` or finalization.
 - **Game internals:** none.
 - **Quirks / bugs:** a `mode` computed as a double (e.g. `2/2`) may be double-tagged and get rejected. `path` is validated by [`getPathRelScript`](#c-helper-getpathrelscript-filecpp220) only, so `..` that stays inside the root and NTFS streams are allowed. The stored name is the raw argument, which matters for `reopen` and `path`.
 
@@ -291,7 +291,7 @@ Writes each argument using [`writeValue`](#c-helper-writevalue-filecpp49).
 - **Threading & blocking:** synchronous `fwrite`; `fflush` afterwards if `autoflush` (`:489-494`).
 - **Side effects:** disk writes. In `FILE_APPEND` mode, writes always go to the end.
 - **Game internals:** none.
-- **Quirks / bugs:** binary int writes on unlocked files write zeros (`File.cpp:92`). Large doubles in text mode kill the process (`File.cpp:103`). `null`, arrays and objects are silently dropped. C requires a flush or seek between a write and a following read, and a seek between a read and a following write. Text-mode `read()` flushes before reading (`:326-329`) and `readAll()` seeks before reading (`:442-456`), so read-after-write is fine for those two. `readLine`, `readAllLines` and binary `read()` do neither, and nothing seeks before `write()`, so in `w+`/`a+` switching from reading to writing without `seek`/`reset`/`end` is undefined behaviour.
+- **Quirks / bugs:** binary int writes on unlocked files write zeros (`File.cpp:92`). Large doubles in text mode kill the process (`File.cpp:103`). `null`, arrays and objects are silently dropped. C requires a flush or seek between a write and a following read, and a seek between a read and a following write. Text-mode `read()` flushes before reading (`:326-329`) and `readAll()` seeks before reading (`:442-456`), so read-after-write is fine for those two. `readLine`, `readAllLines` and binary `read()` do neither, and nothing seeks before `write()`. So in `w+`/`a+` a `write()` right after any read, or one of those three right after a `write()`, needs an explicit `seek`/`reset`/`end` (or `flush`, for write→read) in between; without one the behaviour is undefined.
 
 ### `File.prototype.seek(n[, isLines[, fromStart]])`
 
@@ -387,7 +387,7 @@ Copies a file byte by byte **in text mode**.
 
 - **Native:** `filetools_copy` at `JSFileTools.cpp:70`; registered at `JSFileTools.h:34` (declared arity 2, `JSFUN_STUB_GSOPS`).
 - **Arguments / overloads:** string checks as for `rename` (`:71-74`). `overwrite` counts only if boolean (`:81-82`). `dstPath` is checked with `getPathRelScript` (`"Invalid new file name"`, `:84-85`), then both are opened through `fileOpenRelScript` (`"r"` and `"w"`, `:90-91`).
-- **Returns:** **(unset)** on success (`:121-124`). Throws on open or I/O errors (`"Read Error: …"`, `"Write Error: …"`, `:99-108`).
+- **Returns:** **(unset)** on success (`:121-124`) and on the `overwrite` early exit (`:87-88`). Throws on open or I/O errors (`"Read Error: …"`, `"Write Error: …"`, `:99-108`).
 - **Preconditions:** either.
 - **Threading & blocking:** synchronous `fgetc`/`fputc` loop, one byte at a time, on the script thread.
 - **Side effects:** creates or truncates `dstPath`.
@@ -420,7 +420,7 @@ Reads a whole file as text.
 - **Arguments / overloads:** a string is required (`"You must supply a file name"`, `:142-143`). Open errors come from `fileOpenRelScript` (mode `"r"`, text, `:145-149`).
 - **Returns:** a string: BOM skipped, UTF-8 decoded, truncated at the first NUL, CRLF→LF, cut at Ctrl-Z (`:155-182`). Throws `"Read failed: …"` if the error indicator is set.
 - **Preconditions:** either.
-- **Threading & blocking:** synchronous whole-file read; does **not** take `cFileSection`, so it can see a file that a concurrent `writeText` has just truncated.
+- **Threading & blocking:** synchronous whole-file read. It does **not** take `cFileSection`, so it doesn't wait for a concurrent `writeText`/`appendText`. While that call holds its write handle, the `"r"` open fails with a sharing violation (`"Couldn't open file …"`, [fileOpenRelScript](#c-helper-fileopenrelscript-filecpp188)) instead.
 - **Side effects:** none.
 - **Game internals:** none.
 - **Quirks / bugs:** `ferror(fptr)` is evaluated **after `fclose(fptr)`** (`:165-168`), which is use-after-close.
@@ -434,7 +434,7 @@ Truncates or creates a file and writes the values as text.
 - **Returns:** `true` if every value was written, else `false` (`:213`). Open failure → throws (fileOpenRelScript).
 - **Preconditions:** either.
 - **Threading & blocking:** holds **`Vars.cFileSection`** (process-wide) across open, writes, flush and close (`:192`, `:211`), so it blocks every other script's `writeText`/`appendText` for the duration of the disk I/O.
-- **Side effects:** mode `"w"` (default text mode, LF→CRLF).
+- **Side effects:** mode `"w"` (default text mode, LF→CRLF). The open fails (throws) if any other handle to the file is open, e.g. a live `File`, because of `_wfopen_s` sharing.
 - **Game internals:** none.
 - **Quirks / bugs:** `null` and objects make it return `false` without writing anything for them. Doubles of magnitude ≥ ~1e45 to 1e46 crash the process (`File.cpp:103`). The legacy docs mention "binary representation (for binary files)", but output is always text.
 
@@ -977,7 +977,7 @@ A handle on another (or the current) script: its name, state, pause/resume/stop/
 - **Constructor:** `new D2BSScript()` throws `"Invalid Operation"` (`JSScript.cpp:7`). Instances come from `getScript` and `getScripts`. `load()` returns `null`, not a script object ([globals-core.md](globals-core.md#loadfile-args)).
 - **Private data:** a **borrowed raw `Script*`** (`Script.h:106-207`) taken from `ScriptEngine::scripts`. No reference count, no notification. Nothing is freed when the wrapper dies.
 - **Identity & lifetime:** every call creates a new wrapper, so `getScript(true) === getScript(true)` is `false`. `getNext()` **mutates** the wrapper to point at another script. The pointer is **not revalidated**: once a script is disposed (`ScriptEngine::DisposeScript` → `delete script`, `ScriptEngine.cpp:71-90`), for example when its thread ends with `DisableCache=true` (`Script.cpp:480-481`), every outstanding wrapper dangles and any property or method access is a use-after-free. See [embedding.md §5.6](../spidermonkey/embedding.md#56-disposal-and-the-jscontext_destroy-path) for when disposal happens.
-- **Cross-thread use:** the target `Script` usually lives on another thread. Its state flags (`isPaused`, `isAborted`, `hasActiveCX`) are plain `bool`s with no synchronisation. The only engine call made on the other runtime is `JS_TriggerOperationCallback`, the one documented thread-safe entry point. Exception: the `memory` getter calls `JS_GetGCParameter(otherRuntime)`.
+- **Cross-thread use:** the target `Script` usually lives on another thread. Its state flags (`isPaused`, `isAborted`, `hasActiveCX`) are plain `bool`s with no synchronisation. The only engine call made on the other runtime is `JS_TriggerOperationCallback`, the one documented thread-safe entry point (`dependencies/include/jsapi.h:4010-4030`). Exception: the `memory` getter calls `JS_GetGCParameter(otherRuntime)`.
 - **Script ordering:** `ScriptEngine::scripts` is a `std::map<std::wstring, Script*>` (`ScriptEngine.h:13`). Keys are lower-cased full paths (`ScriptEngine.cpp:35-36`), plus `L"console"` for the console script (`ScriptEngine.cpp:131`). Iteration order (`getScripts`, `getNext`, `getScript()`) is wide-string lexicographic order of those keys.
 
 ### D2BSScript properties
@@ -1046,7 +1046,7 @@ Asks the target to pause at its next operation callback.
 - **Arguments / overloads:** none.
 - **Returns:** `null`.
 - **Preconditions:** acts only if `IsRunning()` (`:91`). No NULL check on the private.
-- **Threading & blocking:** non-blocking for the caller. `Script::Pause` sets `isPaused`, calls `TriggerOperationCallback` and `SetEvent(eventSignal)` (`Script.cpp:217-222`). The target then spins `Sleep(50)` + `JS_MaybeGC` inside its operation callback until resumed (`ScriptEngine.cpp:304-313`). A target sitting in `delay()` only pauses once the delay has ended and JS runs again. Pausing yourself takes effect at your own next callback, and only another script can resume you.
+- **Threading & blocking:** non-blocking for the caller. `Script::Pause` sets `isPaused`, calls `TriggerOperationCallback` and `SetEvent(eventSignal)` (`Script.cpp:217-222`). The target then spins `Sleep(50)` + `JS_MaybeGC` inside its operation callback until resumed (`ScriptEngine.cpp:304-313`). A target sitting in `delay()` keeps waiting and draining its event queue, because `delay`'s loop never checks `isPaused` (`JSCore.cpp:137-161`). The pause takes effect at the next operation-callback check, when JS next runs: inside the first event listener `delay` dispatches, or after `delay` returns. Pausing yourself takes effect at your own next callback, and only another script can resume you.
 - **Side effects:** while paused, the target processes **no events** (its queue keeps filling).
 - **Game internals:** none.
 - **Quirks / bugs:** none further.
@@ -1072,7 +1072,7 @@ Aborts the target script.
 - **Arguments / overloads:** none.
 - **Returns:** `null`.
 - **Preconditions:** acts only if `IsRunning()` (`:81`), so **a paused script cannot be stopped this way**; resume it first. No NULL check.
-- **Threading & blocking:** `Script::Stop(false)` (`Script.cpp:251-280`): takes the target's `Script::lock`, sets `isAborted`, prints `"Script <name> ended"`, triggers the callback and signals `eventSignal`. If the caller is another thread, it **polls `hasActiveCX` every 10 ms for up to 500 ms** while holding the lock. Stopping yourself doesn't wait.
+- **Threading & blocking:** `Script::Stop(false)` (`Script.cpp:251-280`): returns at once if already aborted, else takes the target's `Script::lock`, sets `isAborted` (and clears `isPaused`), prints `"Script <name> ended"` unless the target is the console (`Command` state, `:260-263`), triggers the callback and signals `eventSignal`. If the caller is another thread, it **polls `hasActiveCX` every 10 ms for up to 500 ms** while holding the lock. Stopping yourself doesn't wait.
 - **Side effects:** the target's operation callback returns `false` (uncatchable termination), and then the script is disposed per the cache setting. Stopping the console script is not prevented.
 - **Game internals:** none.
 - **Quirks / bugs:** a target stuck in native code (`Socket.read`, `join`, `DBStatement.skip`) is not stopped. The caller just waits out the 500 ms.
@@ -1085,7 +1085,7 @@ Blocks until the target's thread exits.
 - **Arguments / overloads:** none.
 - **Returns:** `null`.
 - **Preconditions:** none checked (no NULL check, `:135-137`).
-- **Threading & blocking:** `WaitForSingleObject(threadHandle, INFINITE)` (`Script.cpp:224-231`): **no timeout**, no event processing, and the caller can't be stopped meanwhile. **Joining yourself deadlocks forever.** Joining the console script (which loops forever) hangs.
+- **Threading & blocking:** returns at once if the target has no thread handle (never started, or `CreateThread` failed, `Script.cpp:229`). Otherwise `WaitForSingleObject(threadHandle, INFINITE)` (`Script.cpp:224-231`): **no timeout**, no event processing, and the caller can't be stopped meanwhile. **Joining yourself deadlocks forever.** Joining the console script (which loops forever) hangs.
 - **Side effects:** none.
 - **Game internals:** none.
 - **Quirks / bugs:** with `DisableCache=true` the target closes its own thread handle in `~Script` (`Script.cpp:63-64`) before the thread actually exits, while the joiner is still waiting on that handle (Win32 says behaviour is undefined in that case). Joining a disposed script is use-after-free.
@@ -1098,10 +1098,10 @@ Queues a `scriptmsg` event carrying structured-clone copies of the arguments.
 - **Arguments / overloads:** any number of values. Each is serialised with `JSAutoStructuredCloneBuffer::write(cx, v)` in the **sender's** runtime (`:118-122`), with no custom callbacks, so only clonable data (primitives, plain objects/arrays, Date, RegExp, typed arrays) survives. Functions and D2BS host objects (`Unit`, `File`, hooks, …) can't be cloned, **and the `write` failure is ignored**.
 - **Returns:** `null` in every case, including non-delivery (`:108`).
 - **Preconditions:** the target must be `IsRunning()` (paused targets are skipped). Otherwise the call silently does nothing, and the pre-allocated `Event` leaks (`:110-112`).
-- **Threading & blocking:** non-blocking. Holds the script-list lock during cloning (`:113-128`) and `Vars.cEventSection` while pushing to the front of the target's `EventList` (`:124-126`). Calls `TriggerOperationCallback` but **not `SetEvent(eventSignal)`** (`:127`), so a target blocked in `delay(n)` sees the message only when its wait times out. `scriptBroadcast` signals the event (`Script.cpp:428`).
+- **Threading & blocking:** non-blocking. Holds the script-list lock during cloning (`:113-128`) and `Vars.cEventSection` while pushing to the front of the target's `EventList` (`:124-126`). Calls `TriggerOperationCallback` but **not `SetEvent(eventSignal)`** (`:127`), so a target blocked in `delay(n)` sees the message only when its wait times out. `scriptBroadcast` does signal it: it delivers through `Script::FireEvent` (`Events.cpp:147-163`), which calls `SetEvent` (`Script.cpp:428`).
 - **Side effects / delivery:** on the target's thread, during its operation callback or `delay()` drain, `ExecScriptEvent` reads each buffer into the target's runtime and calls every `scriptmsg` listener with `(...values)` (`ScriptEngine.cpp:709-737`). The `read` result is not checked, so a failed clone leaves an **uninitialised `jsval`** in the argument array (`:713-715`). The `new jsval[]` array is never freed. The message is dropped silently if the target has no listener; `functions[evtName]` also creates an empty entry. Ordering is FIFO per target (push front, pop back). See [events.md `scriptmsg`](events.md#scriptmsg).
 - **Game internals:** none.
-- **Quirks / bugs:** unlike `scriptBroadcast`, it doesn't check `IsListenerRegistered`. `IsRunning` is checked before taking the lock (a race with disposal).
+- **Quirks / bugs:** unlike `scriptBroadcast`, it doesn't check `IsListenerRegistered`. `IsRunning` is checked before taking the lock (a race with disposal). **Re-entrancy under a global lock:** structured-clone `write` reads object properties with ordinary property gets (structured-clone semantics; the engine's clone code isn't in the repo), so a getter on an argument runs user JS while the process-wide script-list lock is held (`:113-122`). If that getter blocks (e.g. calls `delay`), every other thread that needs the list (`ForEachScript`, so all event dispatch) stalls until it returns.
 
 ---
 
@@ -1109,16 +1109,16 @@ Queues a `scriptmsg` event carrying structured-clone copies of the arguments.
 
 | Class | Native resource | Explicit release | Finalizer | Closed at script end? |
 |---|---|---|---|---|
-| `File` | `FILE*` (+ CRT stream lock if `lockFile`; non-shareable OS handle) | `close()` | yes: unlock + `fclose` (`JSFile.cpp:570-587`) | Only via GC or `JS_DestroyRuntime` in `~Script` (`Script.cpp:53-55`). Until then the file stays open and can block other writers. |
-| `FileTools` | none persistent | n/a | n/a | n/a |
-| `Folder` | none (name only) | n/a | deletes `DirData` | n/a. Each `getFiles`/`getFolders` leaks one find handle. |
+| `File` | `FILE*` (+ CRT stream lock if `lockFile`; OS handle with `_SH_SECURE` sharing) | `close()` | yes: unlock + `fclose` (`JSFile.cpp:570-587`) | Only via GC or `JS_DestroyRuntime` in `~Script` (`Script.cpp:53-55`). Until then the file stays open and blocks other writers (read handles) or all other opens (write/append handles). |
+| `FileTools` | none on success; `copy` error paths leak `FILE*`s permanently ([FileTools.copy](#filetoolscopysrcpath-dstpath-overwrite)) | n/a | n/a | never closed |
+| `Folder` | none (name only) | n/a | deletes `DirData` | n/a. Each `getFiles`/`getFolders` call that matches anything leaks one find handle. |
 | `SQLite` | `sqlite3*`, `std::set<DBStmt*>` | `close()` (but `open` stays true) | yes: `clean_sqlite_db` + free (`JSSQLite.cpp:280-288`). After `close()` this is a **second close**. | Same as `File` |
 | `DBStatement` | `sqlite3_stmt*`, rooted `current_row` | `close()`, `go()` | yes, but does not unroot `current_row` and does not always erase from `stmts` | Same; dangling-pointer hazards ([DBStatement](#dbstatement)) |
 | `Socket` | `SOCKET`, one `WSAStartup` ref | `close()` (not marked closed) | `closesocket` + `WSACleanup` again; `SocketData` leaked | Same; double close / double cleanup |
 | `Sandbox` | `JSContext*` | none | `JS_DestroyContext` | n/a (constructor crashes) |
 | `D2BSScript` | borrowed `Script*` | none | none | Wrapper may dangle after the target is disposed |
 
-When `~Script` actually runs depends on the dispose path. With `DisableCache=true` (the default, `Helpers.cpp:124`) it runs at the end of the script thread (`Script.cpp:480-481`). Other routes, and the leaks they cause, are in [embedding.md §5.6](../spidermonkey/embedding.md#56-disposal-and-the-jscontext_destroy-path). `JS_DestroyRuntime` is expected to finalize every remaining unrooted object (see Open questions).
+When `~Script` actually runs depends on the dispose path. With `DisableCache=true` (the default, `Helpers.cpp:124`) it runs at the end of the script thread (`Script.cpp:480-481`). With `DisableCache=false` nothing tears the runtime down when the thread ends: `Script::Run` has no cleanup after `main` returns (`Script.cpp:192-211`). So a finished script's `File`, `SQLite` and `Socket` handles stay open, still holding their file-sharing locks and connections, until the script is disposed. Other routes, and the leaks they cause, are in [embedding.md §5.6](../spidermonkey/embedding.md#56-disposal-and-the-jscontext_destroy-path). `JS_DestroyRuntime` is expected to finalize every remaining unrooted object (see Open questions).
 
 ---
 
@@ -1139,34 +1139,37 @@ When `~Script` actually runs depends on the dispose path. With `DisableCache=tru
 
 | # | Legacy says | Code does |
 |---|---|---|
-| 1 | `JSFile.h:34-36`: `lockFile` locks the file "so other threads/programs can't open it" | `_lock_file` is an in-process CRT stream lock (`JSFile.cpp:211-212`); exclusivity against other openers comes from `_wfopen_s` sharing in every mode |
+| 1 | `JSFile.h:34-36`: `lockFile` locks the file "so other threads/programs can't open it" | `_lock_file` is an in-process CRT stream lock (`JSFile.cpp:211-212`); exclusivity against other openers comes from `_wfopen_s` sharing regardless of `lockFile` (read handles keep writers out, write/append handles keep everyone out) |
 | 2 | `JSFile.h:40`, `doc/File.h:28-35`: binary `read(n)` returns n bytes | reads n 4-byte ints (`JSFile.cpp:289-295`) |
 | 3 | `JSFile.h:41-43`: `readLine`/`readAllLines` throw in binary mode | no mode check (`JSFile.cpp:356-424`) |
 | 4 | `JSFile.h:43-44`: `readAll` returns an array in binary mode | always a string (`JSFile.cpp:474-475`) |
 | 5 | `JSFile.h:44`: `write` throws if not all parameters could be written; "objects/array-of-bytes" | per-value failures ignored (`JSFile.cpp:486-487`); objects and arrays unsupported (`File.cpp:146-172`) |
 | 6 | `JSFile.h:87`, api.html: property `writable` | `writeable` (`JSFile.h:99`) |
 | 7 | `doc/File.h:173-175`: `path` is the name given at open | name minus its first character (`JSFile.cpp:84`) |
-| 8 | `doc/File.h:110-114`: modes `r`/`w+`/`a+` | `rt`/`w+t`/`a+t` or `rb`/`w+b`/`a+b` (`JSFile.cpp:193`) |
+| 8 | `doc/File.h:110-114`: modes `r`/`w+`/`a+` | `rt`/`w+t`/`a+t` or `rb`/`w+b`/`a+b` (`JSFile.cpp:193`). The 5-argument overload's text (`doc/File.h:130-132`) does mention the `t`/`b` suffix. |
 | 9 | `JSFile.h:85-96` lists no `accessed`/`created`/`modified` | defined (`JSFile.h:107-109`), numeric seconds |
 | 10 | api.html: `FileTools.remove/rename/copy` return `bool` | return **(unset)** (`JSFileTools.cpp:44-45`, `:66-67`, `:121-124`) |
 | 11 | `doc/FileTools.h:21-27`: `copy(orig, newName)` | third `overwrite` parameter exists and is inverted (`JSFileTools.cpp:81-88`) |
 | 12 | `doc/FileTools.h:45-61`: writeText/appendText write binary representations for binary files | always text (`JSFileTools.cpp:205`, `:234`) |
 | 13 | `doc/Directory.h:10-17`: `create` returns the new sub-folder | returned `Folder` refers to `<root>\name`, not `<this>\name` (`JSDirectory.cpp:186`) |
 | 14 | `doc/Directory.h:19-23`: `remove` returns `true` | throws on `ENOTEMPTY`/`ENOENT`, returns `true` on other failures (`JSDirectory.cpp:199-206`) |
-| 15 | `doc/SQLite.h:34-38`: `open()` opens the database | opens but never sets `isOpen` (`JSSQLite.cpp:230-241`) |
-| 16 | `doc/SQLite.h:40-44`: `close()` closes | closes but leaves `isOpen` true and the handle reachable (`JSSQLite.cpp:47-57`) |
-| 17 | `doc/SQLite.h:58-60`: `lastRowId` int | truncated int32 of an int64 (`JSSQLite.cpp:256`) |
-| 18 | `doc/globalFuncs.h:1094-1100`: `sqlite_memusage()` returns double | **(unset)** (`JSSQLite.cpp:72-76`) |
-| 19 | `doc/DBStatement.h:21-35`: `getColumnValue` returns double or String | also `null`; BLOB throws (`JSSQLite.cpp:392-415`) |
-| 20 | `doc/DBStatement.h:61-67`: `skip(n)` returns rows skipped | never returns for n > 0 (`JSSQLite.cpp:516-528`) |
-| 21 | `doc/DBStatement.h:83-121`: `bind(colnum, val)` | also accepts named parameters; `undefined`→NULL; `null` throws (`JSSQLite.cpp:451-488`) |
-| 22 | `doc/Sandbox.h`: working sandbox; method `isInclude` | constructor crashes; method `isIncluded`; `include` dead; `clearScope` no-op ([Sandbox](#sandbox)) |
-| 23 | `doc/D2BSScript.h:39-45`: `type` int 0/1 | boolean (`JSScript.cpp:32-34`) |
-| 24 | `doc/D2BSScript.h:7-11`: `getNext()` returns bool | `true` or `undefined` (`JSScript.cpp:64`, `:74`) |
-| 25 | `doc/D2BSScript.h` | no `memory` property documented (`JSScript.h:33`) |
-| 26 | `doc/D2BSScript.h:47-49`: `running` = whether the script is running | false while paused (`Script.cpp:340-342`) |
-| 27 | (none) | `Socket` has no legacy documentation at all |
-| 28 | api.html calls the folder class "Directory" | JS class name `Folder` (`JSGlobalClasses.cpp:97`) |
+| 15 | `doc/Directory.h:25-35`: `getFiles()`/`getFolders()` take no parameter | optional wildcard pattern, default `"*.*"`; more than one argument aborts the script (`JSDirectory.cpp:75-81`, `:123-129`) |
+| 16 | `doc/SQLite.h:34-38`: `open()` opens the database | opens but never sets `isOpen` (`JSSQLite.cpp:230-241`) |
+| 17 | `doc/SQLite.h:40-44`: `close()` closes | closes but leaves `isOpen` true and the handle reachable (`JSSQLite.cpp:47-57`) |
+| 18 | `doc/SQLite.h:58-60`: `lastRowId` int | truncated int32 of an int64 (`JSSQLite.cpp:256`) |
+| 19 | `doc/globalFuncs.h:1094-1100`: `sqlite_memusage()` returns double | **(unset)** (`JSSQLite.cpp:72-76`) |
+| 20 | `doc/DBStatement.h:21-35`: `getColumnValue` returns double or String | also `null`; BLOB throws (`JSSQLite.cpp:392-415`) |
+| 21 | `doc/DBStatement.h:61-67`: `skip(n)` returns rows skipped | never returns for n > 0 (`JSSQLite.cpp:516-528`) |
+| 22 | `doc/DBStatement.h:83-121`: `bind(colnum, val)` | also accepts named parameters; `undefined`→NULL; `null` throws (`JSSQLite.cpp:451-488`) |
+| 23 | `doc/Sandbox.h`: working sandbox; method `isInclude` | constructor crashes; method `isIncluded`; `include` dead; `clearScope` no-op ([Sandbox](#sandbox)) |
+| 24 | `doc/D2BSScript.h:39-45`: `type` int 0/1 | boolean (`JSScript.cpp:32-34`) |
+| 25 | `doc/D2BSScript.h:7-11`: `getNext()` returns bool | `true` or `undefined` (`JSScript.cpp:64`, `:74`) |
+| 26 | `doc/D2BSScript.h` | no `memory` property documented (`JSScript.h:33`) |
+| 27 | `doc/D2BSScript.h:47-49`: `running` = whether the script is running | false while paused (`Script.cpp:340-342`) |
+| 28 | `doc/D2BSScript.h:13-32`: `pause`/`resume`/`join`/`stop`/`send` return `void` | all return `null` (`JSScript.cpp:79`, `:88`, `:98`, `:108`, `:134`) |
+| 29 | `doc/globalFuncs.h:266-303`: four `getScript` overloads, no `getScripts` | `getScripts()` exists (`JSGlobalFuncs.h:31`). Every `getScript` form returns `null` when nothing matches (`JSScript.cpp:143`) |
+| 30 | (none) | `Socket` has no legacy documentation at all |
+| 31 | api.html calls the folder class "Directory" | JS class name `Folder` (`JSGlobalClasses.cpp:97`) |
 
 ---
 
@@ -1180,6 +1183,8 @@ Crash / memory-safety:
 - `SQLite.close()` leaves the closed handle in use (`JSSQLite.cpp:47-57`).
 - `statements` double free (`JSSQLite.cpp:265`).
 - `DBStatement.close()`/`go()` leave dangling `stmts` entries (`JSSQLite.cpp:547`, `:581-582`).
+- `lastRowId`/`changes` dereference a NULL `sqlite3*` when constructed with `autoOpen = false` (`JSSQLite.cpp:256`, `:273`).
+- SQLite error texts are used as `JS_ReportError` format strings, so a `%` in the message is a format-string bug (`JSSQLite.cpp:162`, `:442`, `:500`, `:525`, `:535`, `:109-110`, `:141-144`).
 - Unremoved `current_row` root at finalize (`JSSQLite.cpp:583-584`).
 - Methods after `DBStatement.close()` dereference NULL (`JSSQLite.cpp:549`).
 - `Socket.open(nonString)` / `send(nonString)` NULL crash (`JSSocket.cpp:80`, `:137`).
@@ -1187,6 +1192,9 @@ Crash / memory-safety:
 - `writeValue` string use-after-free (`File.cpp:73-74`) and `%.16f` buffer overflow → process exit (`File.cpp:103`).
 - `FileTools.readText` uses the stream after `fclose` (`JSFileTools.cpp:165-168`).
 - `dopen(nonString)` (`JSDirectory.cpp:42`).
+- `Folder` methods do no class or NULL check on `this` (`JSDirectory.cpp:80`, `:128`, `:171`, `:194`), and a throwing `toString` on the `getFiles`/`getFolders` pattern dereferences NULL (`:81`, `:129`).
+- `File.read(hugeCount)` throws an uncaught `std::bad_alloc` (`JSFile.cpp:289`, `:331`).
+- `Sandbox.isIncluded(longName)` overflows `swprintf_s` → process exit (`JSSandbox.cpp:221`).
 - `D2BSScript.memory` on an unstarted script (`JSScript.cpp:42`, `Script.cpp:15-17`).
 - Dangling `D2BSScript` wrappers after disposal (`JSScript.cpp:19`, `ScriptEngine.cpp:82`).
 
@@ -1209,7 +1217,8 @@ Wrong results:
 - `sqlite_memusage` returns nothing (`JSSQLite.cpp:73-75`).
 - `lastRowId` int32 (`JSSQLite.cpp:256`).
 - `Sandbox.include` never runs (`JSSandbox.cpp:196`).
-- `D2BSScript.send` doesn't wake a `delay()`ing target (`JSScript.cpp:127`).
+- `D2BSScript.send` doesn't wake a `delay()`ing target (`JSScript.cpp:127`), and runs argument getters while holding the script-list lock (`JSScript.cpp:113-122`).
+- Strings written by `File.write`/`writeText`/`appendText`/`Socket.send` are cut at the first U+0000 (`File.cpp:69-71`, `JSSocket.cpp:137`).
 - `stop()`/`pause()` ignore paused targets (`JSScript.cpp:81`, `:91`).
 
 Security / sandbox:
@@ -1222,7 +1231,9 @@ Security / sandbox:
 
 Leaks:
 
-- Find handles (`JSDirectory.cpp:102`).
+- Find handles (`JSDirectory.cpp:102`, `:150`).
+- `FileTools.copy` error paths leak `FILE*`s with no owner, keeping their sharing locks until process exit (`JSFileTools.cpp:90-108`).
+- `new SQLite(p, false)` + `open()`: that connection is never closed (`JSSQLite.cpp:48`, `:232-233`).
 - `SocketData` (`JSSocket.cpp:167-173`), the `send` buffer (`JSSocket.cpp:135`), and `WSAStartup` refs on error paths.
 - `SQLite` ctor path/handle on errors (`JSSQLite.cpp:92-93`, `:107-111`).
 - Sandbox `evaluate` code buffer (`JSSandbox.cpp:178`).
@@ -1243,4 +1254,5 @@ Uncatchable aborts (`JS_FALSE` with no exception): `dopen` with an invalid path 
 5. **`JS_TypeOfValue(null)`**: assumed `JSTYPE_OBJECT` per the "Result of typeof" comment (`dependencies/include/jspubtd.h:93`). If the engine returned `JSTYPE_NULL`, `writeValue(null)` would write 4 zero bytes instead of nothing (`File.cpp:58`).
 6. **Finalization at runtime teardown**: assumed that `JS_DestroyRuntime` (`Script.cpp:55`) finalizes every remaining `File`/`SQLite`/`Socket` object. Objects kept alive by leaked roots (e.g. `DBStatement.current_row`) may be skipped, and debug engines report leaked roots. Not verified.
 7. **Interned-string lifetime**: assumed pinned until runtime destruction (`JS_InternUCString`). Whether this engine version ever collects interned atoms isn't visible in the headers.
-8. **Winsock refcount interaction** with Game.exe's own networking: D2BS's extra `WSACleanup` calls (`JSSocket.cpp:125`, `:171`) affect the process-wide count, but whether and when the game's own Winsock usage depends on that count can't be determined from this repository.
+8. **CRT sharing mode.** The `_wfopen_s` sharing behaviour ([fileOpenRelScript](#c-helper-fileopenrelscript-filecpp188)) and the `FileTools.copy` self-copy outcome rest on MSVC's documented `_SH_SECURE` semantics. The CRT source isn't in the repo, so confirm them against the CRT D2BS actually links.
+9. **Winsock refcount interaction** with Game.exe's own networking: D2BS's extra `WSACleanup` calls (`JSSocket.cpp:125`, `:171`) affect the process-wide count, but whether and when the game's own Winsock usage depends on that count can't be determined from this repository.
