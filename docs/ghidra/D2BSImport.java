@@ -1711,7 +1711,10 @@ public class D2BSImport extends GhidraScript {
         if ("force".equals(opts.names)) {
             return true;
         }
-        return src == SourceType.DEFAULT || src == SourceType.ANALYSIS;
+        // SourceType.AI (Ghidra 12) ranks with ANALYSIS; compared by name so that the
+        // script still compiles on versions without that constant
+        return src == SourceType.DEFAULT || src == SourceType.ANALYSIS ||
+            "AI".equals(src.name());
     }
 
     private void nameFunction(Function f, Row r, Address addr, AddrCtx ctx, RowLog log) {
